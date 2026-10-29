@@ -1,0 +1,8 @@
+dataset,step,rows_left,rows_removed,reason
+NVD,0_raw,315909,0,All CVEs in nvd_cves.rds
+NVD,1_has_cvss_v3,304459,11450,Keep rows where cvss_version starts with '3' and cvss_score is not NA
+KEV,0_raw,1758,0,All entries in kev_2026-10-27.csv
+KEV,1_matched_nvd_v3,1553,205,Keep rows where cveID is present in NVD CVSS v3 subset
+CA reports,0_canonical_pdfs,25,0,CA_cyber_YYYY-MM.pdf files in data/raw/ca_reports/
+CA reports,1_pdf_info_ok,25,0,All PDFs pass pdf_info()
+Phishing,0_cleaned,235795,0,All URLs in data/processed/phishing.rds (built by Quintone)

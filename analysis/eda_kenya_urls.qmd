@@ -1,0 +1,103 @@
+---
+title: "Kenyan URL list: exploration"
+format: html
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r setup}
+library(tidyverse)
+
+theme_file <- "../R/theme_dataforge.R"
+if (file.exists(theme_file)) {
+  source(theme_file)
+} else {
+  theme_dataforge <- function() theme_minimal(base_size = 12)
+}
+
+urls <- read_csv("../data/raw/kenya_urls.csv") |>
+  mutate(url_length = nchar(url))
+```
+
+## Basic checks
+
+```{r checks}
+nrow(urls)
+sum(duplicated(urls$url))
+count(urls, sector, sort = TRUE)
+count(urls, page_type, sort = TRUE)
+```
+
+## Links per sector
+
+```{r sector}
+by_sector <- count(urls, sector, sort = TRUE)
+top_sector <- slice(by_sector, 1)
+
+ggplot(by_sector, aes(x = reorder(sector, n), y = n)) +
+  geom_col(fill = "#2c7fb8") +
+  coord_flip() +
+  labs(
+    title = paste0(top_sector$sector, " has the most links (",
+                   top_sector$n, " of ", nrow(urls), ")"),
+    x = "Sector", y = "Number of URLs"
+  ) +
+  theme_dataforge()
+```
+
+## Links per page type
+
+```{r pagetype}
+by_type <- count(urls, page_type, sort = TRUE)
+top_type <- slice(by_type, 1)
+
+ggplot(by_type, aes(x = reorder(page_type, n), y = n)) +
+  geom_col(fill = "#2c7fb8") +
+  coord_flip() +
+  labs(
+    title = paste0(top_type$page_type, " pages make up ",
+                   round(100 * top_type$n / nrow(urls)), "% of the list"),
+    x = "Page type", y = "Number of URLs"
+  ) +
+  theme_dataforge()
+```
+
+## URL length
+
+```{r length}
+ggplot(urls, aes(x = url_length)) +
+  geom_histogram(binwidth = 5, fill = "#2c7fb8", colour = "white") +
+  labs(
+    title = paste0("Typical Kenyan URL is about ", round(median(urls$url_length)),
+                   " characters long"),
+    x = "URL length (characters)", y = "Number of URLs"
+  ) +
+  theme_dataforge()
+```
+
+## Sector and page type together
+
+```{r sector-pagetype}
+table(urls$sector, urls$page_type)
+```
+
+```{r findings-data}
+#| echo: false
+pct <- function(x) round(100 * mean(x))
+host <- tolower(sub("^[a-z]+://([^/?#:]+).*$", "\\1", urls$url))
+n_telco <- sum(urls$sector == "telco_mpesa")
+share_type <- function(t) pct(urls$page_type == t)
+len_by_type <- tapply(urls$url_length, urls$page_type, median)
+```
+
+## Findings
+
+- The list has `r nrow(urls)` URLs from `r n_distinct(urls$organisation)` organisations across `r n_distinct(urls$sector)` sectors, with `r sum(duplicated(urls$url))` duplicates.
+- The median URL is `r round(median(urls$url_length))` characters and the longest is `r max(urls$url_length)`.
+- Deep pages have a median length of `r round(len_by_type[["deep"]])` characters, against `r round(len_by_type[["homepage"]])` for homepages and `r round(len_by_type[["login_service"]])` for login and service pages. A model that learns "long URL means phishing" will therefore treat Kenyan deep pages as more suspicious than homepages.
+- The page-type mix is `r share_type("homepage")`% homepages, `r share_type("login_service")`% login or service pages and `r share_type("deep")`% deeper pages, against a plan of about a third each. Login and service pages are the under-represented group.
+- Government and county sites make up `r pct(urls$sector %in% c("government", "county"))`% of the list, while telecom and M-Pesa has only `r n_telco` URLs (`r pct(urls$sector == "telco_mpesa")`%). The false-alarm test will mostly describe public-sector sites.
+- `r pct(grepl("\\.ke$", host))`% of URLs sit on a `.ke` domain (`r pct(grepl("\\.go\\.ke$", host))`% on `.go.ke`, `r pct(grepl("\\.co\\.ke$", host))`% on `.co.ke`), and `r pct(!grepl("\\.ke$", host))`% are on other domains such as `.com`, so a Kenyan site is not always a `.ke` site.
+- `r pct(grepl("?", urls$url, fixed = TRUE))`% of URLs carry a query string, and all `r nrow(urls)` use https, so HTTPS gives the model no signal on this list.
