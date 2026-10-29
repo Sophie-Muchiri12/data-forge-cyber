@@ -70,5 +70,32 @@ top15 |>
        x = "CVEs in KEV", y = NULL)
 ```
 
+## 4. Time to exploitation
+```{r}
+vulns<- readRDS(here::here("data/processed/vulns.rds"))
+```
 
+```{r}
+ttx <- vulns |> filter(exploited) |> mutate(days = as.numeric(kev_date_added - published))
+summary(ttx$days)
+```
+
+```{r}
+ttx |>
+  group_by(pub_year) |>
+  summarise(n = n(), median_days = median(days))
+```
+
+```{r}
+ttx |>
+  group_by(pub_year) |>
+  summarise(median_days = median(days)) |>
+  ggplot(aes(x = pub_year, y = median_days)) +
+  geom_col() +
+  scale_x_continuous(breaks = 2016:2026) +
+  labs(title = "Since KEV began, exploited bugs reach it within about a week of going public",
+       subtitle = "Median days from NVD publication to KEV entry; KEV started Nov 2021",
+       x = "Year CVE was published", y = "Median days")
+```
+For CVEs published since 2022, the median gap between NVD publication and KEV entry is between 4 and 24 days, usually about a week. Older CVEs show gaps of years only because KEV started in November 2021, so bugs exploited before then were added late. 65 CVEs have negative gaps because NVD published its record after CISA had already listed them. 2026 is a partial year, so its gaps cannot be long yet.
 
