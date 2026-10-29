@@ -139,13 +139,16 @@ if (length(epss_files) == 0) {
 
 # ── 5. Phishing ──────────────────────────────────────────────────────────────
 cat("\n── Phishing ─────────────────────────────────────────────\n")
-phish_files <- list.files("data/raw", pattern = "(?i)phish|PhiUSIIL", recursive = TRUE)
-if (length(phish_files) == 0) {
-  cat("  [Phishing] No files found.\n")
-  add_row("Phishing", "0_raw",     PENDING("team member"), PENDING("team member"), "No phishing data found in data/raw/")
-  add_row("Phishing", "1_cleaned", PENDING("team member"), PENDING("team member"), "Depends on step 0")
+phish_path <- "data/processed/phishing.rds"
+if (file.exists(phish_path)) {
+  phish <- readRDS(phish_path)
+  cat(sprintf("  Step 0 (cleaned table): %d rows\n", nrow(phish)))
+  add_row("Phishing", "0_cleaned", nrow(phish), 0,
+          "All URLs in data/processed/phishing.rds (built by Quintone)")
 } else {
-  cat("  Found:", paste(phish_files, collapse = ", "), "\n")
+  cat("  [Phishing] data/processed/phishing.rds not found.\n")
+  add_row("Phishing", "0_cleaned", PENDING("Quintone"), PENDING("Quintone"),
+          "data/processed/phishing.rds not found")
 }
 
 # ── 6. Kenya URLs ─────────────────────────────────────────────────────────────

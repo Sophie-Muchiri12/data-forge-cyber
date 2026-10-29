@@ -114,7 +114,7 @@ if (file.exists(nvd_path)) {
 # 2. KEV – unmatched entries (not in NVD CVSS v3 set) and their CVE-ID years
 # ═══════════════════════════════════════════════════════════════════════════
 cat("\n── 2. KEV ───────────────────────────────────────────────\n")
-kev <- list.files("data/raw/kev", full.names = TRUE) |> map_dfr(read_csv)
+kev_files <- list.files("data/raw/kev", pattern = "\\.csv$", full.names = TRUE)
 
 if (length(kev_files) > 0 && !is.null(nvd_v3_ids)) {
   kev <- read_csv(last(sort(kev_files)), col_types = cols(.default = "c"),

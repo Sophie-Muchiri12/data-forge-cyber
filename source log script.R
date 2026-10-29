@@ -35,6 +35,9 @@ readr::read_csv(f) |> tail()                          # check: it should now rea
 fk_data <- readr::read_csv("data/raw/ca_entry_FK.csv")
 View(fk_data)
 
+cm_data <- readr::read_csv("data/raw/ca_entry_CM.csv")
+View(cm_data)
+
 library(tidyverse)
 
 list.files("data/raw/kev")    # shows every KEV file in the folder
@@ -44,3 +47,16 @@ kev <- list.files("data/raw/kev", full.names = TRUE) |>
 
 nrow(kev)                     # total rows
 n_distinct(kev$cveID)         # unique vulnerabilities
+
+
+library(tidyverse)
+library(pdftools)
+
+url  <- "https://www.ca.go.ke/sites/default/files/2026-07/Cyber%20Security%20Report%20Q4%202025-2026_1.pdf"
+dest <- "data/raw/ca_reports/CA_cyber_2026-04.pdf"
+
+download.file(url, dest, mode = "wb")   # "wb" keeps the PDF from getting corrupted
+
+# Check it worked
+pdf_info(dest)$pages          # should print a page count, not an error
+pdf_text(dest)[1] |> cat()    # first page should say April–June 2026
