@@ -5,10 +5,10 @@ fy,quarter,period_start,category_raw,events,reported_total,advisories,source_pag
 2025/26,3,2026-01-01,Web Application Attacks,12115001,3367113840,20581754,7,NA
 2025/26,3,2026-01-01,Distributed Denial of Service Attacks,8202803,3367113840,20581754,7,NA
 2025/26,3,2026-01-01,Mobile Application Attacks,219549,3367113840,20581754,7,NA
-2019/20,3,2020-01-01,Malware,33747678,34644531,NA,4,NA
-2019/20,3,2020-01-01,DDOS/Botnet,287481,34644531,NA,4,“botnet attack events”
-2019/20,3,2020-01-01,Web Application Attacks,582281,34644531,NA,4,NA
-2019/20,3,2020-01-01,System vulnerabilities,27091,34644531,NA,4,NA
+2019/20,3,2020-01-01,Malware,33747678,34644531,17844,4,NA
+2019/20,3,2020-01-01,DDOS/Botnet,287481,34644531,17844,4,“botnet attack events”
+2019/20,3,2020-01-01,Web Application Attacks,582281,34644531,17844,4,NA
+2019/20,3,2020-01-01,System vulnerabilities,27091,34644531,17844,4,NA
 2020/21,2,2020-10-01,Malware,46069525,56206097,21513,7,total on p4
 2020/21,2,2020-10-01,DDOS/Botnet,2260036,56206097,21513,10,total on p4; p10 heading BOTNET/DDOS
 2020/21,2,2020-10-01,Web Application Attacks,7847457,56206097,21513,9,total on p4
@@ -33,3 +33,7 @@ fy,quarter,period_start,category_raw,events,reported_total,advisories,source_pag
 2021/22,3,2022-01-01,DDOS/Botnet,19695287,79175429,2908431,10,NA
 2021/22,3,2022-01-01,Web Application Attacks,324836,79175429,2908431,10,NA
 2021/22,3,2022-01-01,System vulnerabilities,22142796,79175429,2908431,10,NA
+2019/20,4,2020-04-01,Malware,12508275,13909069,20839,3,"total p3 and p5, advisories p6; p3 typo says 2010"
+2019/20,4,2020-04-01,DDOS/Botnet,267931,13909069,20839,3,p5 calls it Botnet/DDOS
+2019/20,4,2020-04-01,Web Application Attacks,1102840,13909069,20839,3,NA
+2019/20,4,2020-04-01,System vulnerabilities,30023,13909069,20839,3,"p5 text says 12.9 million, printed total is 13,909,069"
