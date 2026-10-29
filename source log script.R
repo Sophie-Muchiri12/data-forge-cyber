@@ -64,3 +64,10 @@ pdf_text(dest)[1] |> cat()    # first page should say April–June 2026
 
 source_log <- read.csv("docs/source_log.csv")
 View(source_log)
+
+
+getwd()   # should end in data-forge-cyber
+
+f <- list.files("~/Downloads", pattern = "phase2_slides.*\\.qmd$", full.names = TRUE)
+f         # shows the copies it found
+file.copy(f[which.max(file.mtime(f))], "report/phase2_slides.qmd", overwrite = TRUE)
