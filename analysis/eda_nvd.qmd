@@ -1,0 +1,88 @@
+---
+title: "EDA: NVD"
+author: "Nathan Otieno"
+format: html
+---
+
+```{r}
+library(tidyverse)
+```
+
+## Load the data
+```{r}
+vulns <- readRDS(here::here("data/processed/vulns.rds"))
+```
+
+## 1. Basic checks
+```{r}
+glimpse(vulns)
+```
+
+```{r}
+colSums(is.na(vulns))
+```
+Only 3.6% of CVEs (11,450) have no CVSS score; when the score is missing, every CVSS column is missing with it. 9.6% have no CWE and 23% have no product. The blanks in kev_date_added and ransomware are not missing data: they mark CVEs that are not in KEV. The blanks in epss_2025_01_01 are almost all CVEs published after that snapshot was taken.
+
+## 2. CVEs published per year
+```{r}
+vulns |> count(pub_year)
+```
+
+```{r}
+vulns |>
+  count(pub_year) |>
+  ggplot(aes(x = pub_year, y = n)) +
+  geom_col() +
+  scale_x_continuous(breaks = 2016:2026) +
+  labs(title = "CVEs published per year keep rising: 2026 already has nearly double 2025's total",
+       subtitle = "2026 is up to 22 October",
+       x = NULL, y = "CVEs published")
+```
+CVEs published per year rose every year, from 13,365 in 2017 to 47,946 in 2025. 2026 already has 85,802 by 22 October, almost double the whole of 2025. The 2016 bar is low because our download starts at CVE-2016 IDs, so CVEs published in 2016 with older IDs are not included.
+
+```{r}
+vulns |>
+  group_by(pub_year) |>
+  summarise(pct_no_cvss = round(100 * mean(is.na(cvss_score)), 1),
+            pct_no_cwe  = round(100 * mean(is.na(cwe)), 1))
+```
+Missing CVSS scores were almost zero from 2017 to 2023, then rose to 5.5% in 2025 and 9.6% in 2026. NVD is not keeping up with the growing number of CVEs, which section 3 looks into. Missing CWE went the other way, falling from about 12-20% before 2022 to 5-8% since 2023.
+
+## 3. Who gave the severity score
+```{r}
+scorers <- vulns |>
+  mutate(scorer = case_when(
+    is.na(cvss_scored_by)          ~ "No score",
+    cvss_scored_by == "nvd@nist.gov" ~ "NVD",
+    TRUE                           ~ "Reporter"
+  ))
+scorers |> count(scorer)
+```
+
+```{r}
+scorers |>
+  count(pub_year, scorer) |>
+  ggplot(aes(x = pub_year, y = n, fill = scorer)) +
+  geom_col(position = "fill") +
+  scale_x_continuous(breaks = 2016:2026) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "NVD scored over 90% of CVEs until 2023; by 2026 it scores only 16%",
+      subtitle = "Since 2024, most scores come from the reporting company",
+       x = NULL, y = "Share of CVEs", fill = "Scored by")
+```
+Until 2023, NVD scored over 90% of CVEs itself. From 2024 the share fell sharply: 58% in 2024, 35% in 2025 and 16% in 2026. Reporters filled the gap, scoring 74% of 2026 CVEs, while 9.6% of 2026 CVEs have no score at all. So most recent severity scores come from the company that reported the bug, not from an independent reviewer, which is worth keeping in mind whenever we compare severity across years.
+
+## Findings
+
+1. CVEs published per year rose from 13,365 in 2017 to 47,946 in 2025, and 2026 already has 85,802 by 22 October.
+2. Only 3.6% of CVEs have no CVSS score, but the share is rising: about 0% in 2017-2023, 5.5% in 2025 and 9.6% in 2026.
+3. NVD scored over 90% of CVEs until 2023 but only 16% in 2026; reporting companies now score most new CVEs (74% in 2026).
+4. Missing CWE fell from 12-20% before 2022 to 5-8% since 2023, so weakness types are now recorded more consistently.
+
+
+
+
+
+
+
+
