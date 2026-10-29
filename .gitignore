@@ -4,6 +4,7 @@
 .Ruserdata
 data/raw/nvd/
 data/raw/phishing/
-data/raw/epss/
+
 .Renviron
 data/interim/nvd_years/
+data/raw/_pdf_pages/

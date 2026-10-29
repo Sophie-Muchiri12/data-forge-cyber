@@ -1,5 +1,5 @@
 fy,quarter,period_start,category_raw,events,reported_total,advisories,source_page,note
-2019/20,3,2020-01-01,DDOS/Botnet,287481,34644531,17844,4,“botnet attack events”
+2019/20,3,2020-01-01,DDOS/Botnet,287481,34644531,17844,4,"page 3 calls it ""botnet attack events"""
 2019/20,3,2020-01-01,Malware,33747678,34644531,17844,4,NA
 2019/20,3,2020-01-01,System vulnerabilities,27091,34644531,17844,4,NA
 2019/20,3,2020-01-01,Web Application Attacks,582281,34644531,17844,4,NA
