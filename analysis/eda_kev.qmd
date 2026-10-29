@@ -30,7 +30,7 @@ summary(kev)
 ```{r}
 kev |> count(knownRansomwareCampaignUse)
 ```
-361 of 1,756 KEV entries (20.5%) are known to have been used in ransomware campaigns. The rest are marked "Unknown", which means no confirmed evidence, not that they were never used.
+361 of 1,758 KEV entries (20.5%) are known to have been used in ransomware campaigns. The rest are marked "Unknown", which means no confirmed evidence, not that they were never used.
 
 ## 2. Entries added per year
 ```{r}
@@ -45,7 +45,7 @@ kev |>
   geom_col() +
   scale_x_continuous(breaks = 2021:2026) +
   labs(title = "KEV additions peaked in 2022, dipped and are rising again",
-       subtitle = "2026 is up to 23 October",
+       subtitle = "2026 is up to 26 October",
        x = NULL, y = "CVEs added to KEV")
 ```
 
