@@ -39,3 +39,5 @@ PhiUSIIL,PhiUSIIL_Phishing_URL_Dataset.csv,https://archive.ics.uci.edu/dataset/9
 
 "Kenyan URL list","kenya_urls.csv","collected by hand from each organisation's own website","2026-10-27","Bradley","2026-10","public websites; URLs only, no page content","legitimate Kenyan sites only; phishing links never collected"
 "Kenyan URL list","kenya_urls.csv","collected by script from each organisation's own website, then checked by hand","2026-10-27","Bradley","2026-10","public websites; URLs only, no page content","legitimate Kenyan sites only; phishing links never collected"
+EPSS,epss_scores-2025-01-01.csv.gz,https://epss.empiricalsecurity.com/epss_scores-2025-01-01.csv.gz,2026-10-28,Sophie,scores as of 2025-01-01,FIRST EPSS - free to use with attribution,271765 CVEs; model v2023.03.01
+EPSS,epss_scores-2026-10-27.csv.gz,https://epss.empiricalsecurity.com/epss_scores-current.csv.gz,2026-10-28,Sophie,scores as of 2026-10-27,FIRST EPSS - free to use with attribution,396257 CVEs; model v2026.06.15

@@ -6,7 +6,7 @@ fy,quarter,period_start,category_raw,events,reported_total,advisories,source_pag
 2025/26,3,2026-01-01,Distributed Denial of Service Attacks,8202803,3367113840,20581754,7,NA
 2025/26,3,2026-01-01,Mobile Application Attacks,219549,3367113840,20581754,7,NA
 2019/20,3,2020-01-01,Malware,33747678,34644531,17844,4,NA
-2019/20,3,2020-01-01,DDOS/Botnet,287481,34644531,17844,4,“botnet attack events”
+2019/20,3,2020-01-01,DDOS/Botnet,287481,34644531,17844,4,ï¿½botnet attack eventsï¿½
 2019/20,3,2020-01-01,Web Application Attacks,582281,34644531,17844,4,NA
 2019/20,3,2020-01-01,System vulnerabilities,27091,34644531,17844,4,NA
 2020/21,2,2020-10-01,Malware,46069525,56206097,21513,7,total on p4
