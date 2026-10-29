@@ -8,3 +8,5 @@ data/raw/phishing/
 .Renviron
 data/interim/nvd_years/
 data/raw/_pdf_pages/
+analysis/*.html
+analysis/*_files/
