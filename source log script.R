@@ -60,3 +60,7 @@ download.file(url, dest, mode = "wb")   # "wb" keeps the PDF from getting corrup
 # Check it worked
 pdf_info(dest)$pages          # should print a page count, not an error
 pdf_text(dest)[1] |> cat()    # first page should say April–June 2026
+
+
+source_log <- read.csv("docs/source_log.csv")
+View(source_log)
