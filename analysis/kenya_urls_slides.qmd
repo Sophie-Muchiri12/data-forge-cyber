@@ -1,0 +1,258 @@
+---
+title: "Do phishing detectors misread real Kenyan websites?"
+subtitle: "Our own list of legitimate Kenyan URLs"
+author: "Bradley Mudhune"
+format:
+  revealjs:
+    theme: simple
+    slide-number: true
+    transition: fade
+    embed-resources: true
+    width: 1280
+    height: 720
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r setup}
+library(tidyverse)
+
+source("../R/theme_dataforge.R")
+source("../R/url_features.R")
+
+col_main <- "#2c7fb8"
+col_grey <- "#9aa5b1"
+col_warn <- "#d95f02"
+
+theme_slides <- function() theme_dataforge() + theme(text = element_text(size = 16))
+
+urls <- read_csv("../data/raw/kenya_urls.csv", show_col_types = FALSE) |>
+  mutate(
+    url_length = nchar(url),
+    page_type = factor(page_type, levels = c("homepage", "login_service", "deep"),
+                       labels = c("Homepage", "Login / service", "Deeper page")),
+    host = tolower(sub("^[a-z]+://([^/?#:]+).*$", "\\1", url))
+  )
+
+pct <- function(x) round(100 * mean(x))
+n_urls <- nrow(urls)
+n_orgs <- n_distinct(urls$organisation)
+n_sectors <- n_distinct(urls$sector)
+
+sector_labels <- c(government = "Government", county = "County government",
+                   bank_sacco = "Banks and SACCOs", university = "Universities",
+                   ecommerce = "E-commerce", media = "Media", telco_mpesa = "Telecom / M-PESA")
+urls <- urls |> mutate(sector_label = recode(sector, !!!sector_labels))
+```
+
+## Why we built this list
+
+- Every other dataset in this project was made by someone else.
+- The phishing dataset (PhiUSIIL) was built from websites around the world.
+- **Our question:** does a phishing model trained on it wrongly flag **real Kenyan** websites?
+- To answer it, we need real Kenyan URLs of our own to test against.
+
+::: {.notes}
+Every URL in this list is legitimate, so every "phishing" prediction on it will be a false alarm. That gives us a clean false-alarm rate. The test itself belongs to Part 4 (Quintone).
+:::
+
+## How we collected it
+
+:::: {.columns}
+::: {.column width="55%"}
+- **`r n_urls` URLs** from **`r n_orgs` organisations** in **`r n_sectors` sectors**
+- Taken from each organisation's own website, never from ads, messages or search results
+- **Only the URL text is stored.** No page content
+- **No phishing link was collected or opened**
+:::
+::: {.column width="45%"}
+```{r}
+tibble(Item = c("URLs", "Organisations", "Sectors", "Duplicates"),
+       Count = c(n_urls, n_orgs, n_sectors, sum(duplicated(urls$url)))) |>
+  knitr::kable()
+```
+:::
+::::
+
+## Government and county sites dominate the list
+
+```{r}
+#| fig-width: 11
+#| fig-height: 5
+by_sector <- count(urls, sector_label, sort = TRUE) |>
+  mutate(share = round(100 * n / n_urls))
+
+ggplot(by_sector, aes(x = n, y = reorder(sector_label, n))) +
+  geom_col(fill = col_main, width = 0.7) +
+  geom_text(aes(label = paste0(n, "  (", share, "%)")), hjust = -0.1, size = 5) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(title = paste0("Government and county sites are ",
+                      pct(urls$sector %in% c("government", "county")), "% of the list"),
+       x = "Number of URLs", y = NULL) +
+  theme_slides()
+```
+
+::: {.notes}
+Telecom and M-PESA is the smallest sector (`r pct(urls$sector == "telco_mpesa")`%). This means our results describe public-sector sites best.
+:::
+
+## We did not stop at homepages
+
+```{r}
+#| fig-width: 11
+#| fig-height: 5
+by_type <- count(urls, page_type) |> mutate(share = round(100 * n / n_urls))
+
+ggplot(by_type, aes(x = page_type, y = n)) +
+  geom_col(fill = col_main, width = 0.6) +
+  geom_hline(yintercept = n_urls / 3, linetype = "dashed", colour = col_grey) +
+  annotate("text", x = 3.45, y = n_urls / 3 + 6, label = "planned: a third each",
+           hjust = 1, colour = "grey35", size = 5) +
+  geom_text(aes(label = paste0(n, "  (", share, "%)")), vjust = -0.5, size = 5) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(title = "Login and service pages fall short of a third; deeper pages go over it",
+       x = NULL, y = "Number of URLs") +
+  theme_slides()
+```
+
+::: {.notes}
+Homepages alone would make the test too easy. Login and service pages are 23% against a plan of about a third, so more of them would strengthen the test.
+:::
+
+## Login pages are thin in a few sectors
+
+```{r}
+#| fig-width: 11
+#| fig-height: 5.2
+mix <- urls |> count(sector_label, page_type)
+login_low <- urls |>
+  count(sector_label, page_type, .drop = FALSE) |>
+  filter(page_type == "Login / service") |>
+  arrange(n) |>
+  slice_head(n = 2) |>
+  pull(sector_label)
+
+ggplot(mix, aes(x = n, y = fct_reorder(sector_label, n, sum), fill = page_type)) +
+  geom_col(width = 0.7) +
+  scale_fill_manual(values = c("Homepage" = col_grey, "Login / service" = col_warn,
+                               "Deeper page" = col_main)) +
+  labs(title = paste0(login_low[1], " and ", login_low[2],
+                      " have the fewest login pages, so their results will be least certain"),
+       x = "Number of URLs", y = NULL, fill = NULL) +
+  theme_slides()
+```
+
+## Deeper pages have longer URLs
+
+```{r}
+#| fig-width: 11
+#| fig-height: 5
+len_med <- urls |> group_by(page_type) |> summarise(med = median(url_length), .groups = "drop")
+
+ggplot(urls, aes(x = page_type, y = url_length)) +
+  geom_boxplot(fill = "#cfe3f1", colour = col_main, outlier.alpha = 0.4) +
+  geom_text(data = len_med, aes(y = med, label = paste0("median ", med)),
+            vjust = -1.2, size = 5, fontface = "bold") +
+  labs(title = paste0("Deeper pages are about ",
+                      round(len_med$med[len_med$page_type == "Deeper page"] /
+                              len_med$med[len_med$page_type == "Homepage"], 1),
+                      " times as long as homepages"),
+       x = NULL, y = "URL length (characters)") +
+  theme_slides()
+```
+
+::: {.notes}
+A model that learns "long URL means phishing" will flag deeper Kenyan pages more often than homepages. Length alone is a poor guide.
+:::
+
+## The phishing dataset has almost no real URLs like ours
+
+```{r}
+#| fig-width: 11
+#| fig-height: 5
+phish_url <- readRDS("../data/processed/phishing_url_features.rds")
+ke_feat <- url_features(urls$url)
+
+compare <- bind_rows(
+  phish_url |> transmute(group = if_else(is_phishing == "phishing",
+                                         "Dataset: phishing", "Dataset: legitimate"),
+                         has_path = path_length > 1),
+  ke_feat |> transmute(group = "Our Kenyan list", has_path = path_length > 1)
+) |>
+  group_by(group) |>
+  summarise(share = 100 * mean(has_path), n = n(), .groups = "drop")
+
+ggplot(compare, aes(x = share, y = reorder(group, share), fill = group)) +
+  geom_col(width = 0.6, show.legend = FALSE) +
+  geom_text(aes(label = paste0(round(share, 1), "%   (n = ", scales::comma(n), ")")),
+            hjust = -0.05, size = 5) +
+  scale_fill_manual(values = c("Our Kenyan list" = col_main,
+                               "Dataset: phishing" = col_warn,
+                               "Dataset: legitimate" = col_grey)) +
+  scale_x_continuous(limits = c(0, 100), expand = expansion(mult = c(0, 0.25))) +
+  labs(title = paste0(round(compare$share[compare$group == "Our Kenyan list"]),
+                      "% of Kenyan URLs have a path, against ",
+                      round(compare$share[compare$group == "Dataset: legitimate"]),
+                      "% of the dataset's legitimate URLs"),
+       x = "URLs that have a path after the domain (%)", y = NULL) +
+  theme_slides()
+```
+
+::: {.notes}
+All 134,850 legitimate URLs in the dataset are bare homepages. A model trained on them has only seen the homepage shape of a real website. This is the main reason we expect false alarms on Kenyan login and deeper pages.
+:::
+
+## Kenyan sites are not all on `.ke` domains
+
+```{r}
+#| fig-width: 11
+#| fig-height: 4.6
+domains <- urls |>
+  mutate(domain_group = case_when(
+    str_detect(host, "\\.go\\.ke$") ~ ".go.ke",
+    str_detect(host, "\\.co\\.ke$") ~ ".co.ke",
+    str_detect(host, "\\.ac\\.ke$") ~ ".ac.ke",
+    str_detect(host, "\\.ke$")      ~ "other .ke",
+    TRUE                            ~ "not .ke (for example .com)"
+  )) |>
+  count(domain_group) |>
+  mutate(share = round(100 * n / n_urls))
+
+ggplot(domains, aes(x = n, y = reorder(domain_group, n))) +
+  geom_col(fill = col_main, width = 0.65) +
+  geom_text(aes(label = paste0(n, "  (", share, "%)")), hjust = -0.1, size = 5) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(title = paste0(pct(!str_detect(urls$host, "\\.ke$")),
+                      "% of real Kenyan sites are not on a .ke domain"),
+       x = "Number of URLs", y = NULL) +
+  theme_slides()
+```
+
+::: {.notes}
+Only 81 URLs in the whole phishing dataset end in .ke, so the model has almost never seen a Kenyan domain. Domains like .co.ke can also look like an extra subdomain to a naive counter, which Part 4 tests.
+:::
+
+## What we found
+
+1. We built an original list of **`r n_urls` real Kenyan URLs** from **`r n_orgs` organisations**.
+2. **`r pct(urls$page_type != "Homepage")`%** are login or deeper pages, so the test is harder than a homepage-only one.
+3. Deeper pages are about **`r round(median(urls$url_length[urls$page_type == "Deeper page"]) / median(urls$url_length[urls$page_type == "Homepage"]), 1)` times as long** as homepages (median `r median(urls$url_length[urls$page_type == "Deeper page"])` vs `r median(urls$url_length[urls$page_type == "Homepage"])` characters).
+4. **`r round(compare$share[compare$group == "Our Kenyan list"])`%** of Kenyan URLs have a path, against **0%** of the dataset's legitimate URLs.
+5. **`r pct(!str_detect(urls$host, "\\.ke$"))`%** are not on a `.ke` domain.
+
+## Limits, said plainly
+
+- **Not a random sample.** Government and county sites are `r pct(urls$sector %in% c("government", "county"))`% of the list; telecom is only `r pct(urls$sector == "telco_mpesa")`%
+- **Login and service pages** are `r pct(urls$page_type == "Login / service")`%, short of the planned third
+- **Legitimate URLs only:** it measures false alarms, not how well the model catches Kenyan phishing
+- **All URLs use https**, so HTTPS cannot separate them
+- **We have not run the false-alarm test in this section.** Part 4 does that
+
+## What this means for Part 4
+
+- The Kenyan false-alarm test uses this list: every flagged URL is a mistake.
+- We expect more false alarms on **login and deeper pages** than on homepages.
+- If the rate is high, we test one fix: counting `.co.ke` and `.go.ke` as one domain ending.
+- **Questions?**
