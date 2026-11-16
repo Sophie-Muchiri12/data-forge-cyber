@@ -52,6 +52,7 @@ n_distinct(kev$cveID)         # unique vulnerabilities
 library(tidyverse)
 library(pdftools)
 
+
 url  <- "https://www.ca.go.ke/sites/default/files/2026-07/Cyber%20Security%20Report%20Q4%202025-2026_1.pdf"
 dest <- "data/raw/ca_reports/CA_cyber_2026-04.pdf"
 
@@ -61,6 +62,7 @@ download.file(url, dest, mode = "wb")   # "wb" keeps the PDF from getting corrup
 pdf_info(dest)$pages          # should print a page count, not an error
 pdf_text(dest)[1] |> cat()    # first page should say April–June 2026
 
+<<<<<<< HEAD
 
 source_log <- read.csv("docs/source_log.csv")
 View(source_log)
@@ -71,3 +73,15 @@ getwd()   # should end in data-forge-cyber
 f <- list.files("~/Downloads", pattern = "phase2_slides.*\\.qmd$", full.names = TRUE)
 f         # shows the copies it found
 file.copy(f[which.max(file.mtime(f))], "report/phase2_slides.qmd", overwrite = TRUE)
+=======
+vulns <- readRDS("data/processed/vulns.rds")
+View(vulns)
+
+
+library(tidyverse)
+vulns <- readRDS("data/processed/vulns.rds")
+
+exploited <- filter(vulns, exploited)
+nrow(exploited)   # 1554
+View(exploited)
+>>>>>>> dev

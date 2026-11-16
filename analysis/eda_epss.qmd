@@ -1,0 +1,71 @@
+---
+title: "EDA: EPSS"
+author: "Nathan Otieno"
+format: html
+---
+
+```{r}
+library(tidyverse)
+```
+
+## Load the data
+```{r}
+epss_now <- read_csv(here::here("data/raw/epss/epss_scores-2026-10-27.csv.gz"), skip = 1)
+```
+
+## 1. Basic Checks
+```{r}
+glimpse(epss_now)
+summary(epss_now)
+```
+
+## 2. Spread of scores
+```{r}
+epss_now |>
+  ggplot(aes(x = epss)) +
+  geom_histogram(bins = 50) +
+  scale_x_log10() +
+  labs(title = "Most CVEs are very unlikely to be exploited: the median EPSS score is 0.6%",
+       x = "EPSS score (log scale)", y = "Number of CVEs")
+```
+EPSS scores 396,257 CVEs (including ones older than 2016). The median score is 0.0063, so half of all CVEs have under a 0.63% chance of being exploited in the next 30 days. 62.6% score under 1%, and only 4.4% score 10% or more. That is why the x-axis is on a log scale: on a normal scale almost every CVE would sit in one bar at zero.
+
+## 3. Exploited vs. not exploited
+```{r}
+v <- readRDS(here::here("data/processed/vulns.rds")) |>
+  left_join(epss_now |> transmute(cve_id = cve, epss_now = epss), by = "cve_id")
+
+v |>
+  group_by(exploited) |>
+  summarise(n = n(), median_epss = median(epss_now, na.rm = TRUE))
+```
+
+```{r}
+ggplot(v, aes(x = exploited, y = epss_now)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  labs(title = "Exploited CVEs score about 100 times higher on EPSS today",
+       x = "In KEV (exploited)", y = "EPSS score today (log scale)")
+```
+
+## 4. CVEs with no EPSS score on 1 January 2025
+```{r}
+v |> count(no_score_2025 = is.na(epss_2025_01_01),
+           published_2025_or_later = published >= as_date("2025-01-01"))
+```
+Exploited CVEs have a median EPSS score of 0.49 today, against 0.0049 for the rest: about 100 times higher. Part of this gap is circular, because EPSS raises a score once exploitation is seen, so today's score is not a fair prediction test. That is why the model in Phase 3 uses the 1 January 2025 snapshot instead.
+
+134,243 CVEs had no EPSS score on 1 January 2025, but 133,746 of them were simply published after that date. Only 497 older CVEs were missing a score, and none of them were exploited.
+
+## Findings
+
+1. The median EPSS score is 0.0063: half of all CVEs have under a 0.63% chance of exploitation in the next 30 days, and only 4.4% score 10% or more.
+2. Exploited CVEs score about 100 times higher today (median 0.49 vs 0.0049), though today's score partly reflects exploitation already seen.
+3. Almost every CVE published before 2025 had an EPSS score on 1 January 2025; only 497 did not.
+
+
+
+
+
+
+
