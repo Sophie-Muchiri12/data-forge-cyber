@@ -1,0 +1,363 @@
+---
+title: "Part 3: What should be fixed first?"
+subtitle: "Phase 7 of the playbook: our model vs CVSS vs EPSS, tested on what attackers did after 1 January 2025"
+format:
+  html:
+    embed-resources: true
+    toc: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r setup}
+library(tidyverse)
+library(recipes)
+library(themis)     # step_downsample
+library(rsample)    # cross-validation folds
+library(ranger)     # random forest
+library(scales)
+
+source(here::here("R/theme_dataforge.R"))
+theme_set(theme_dataforge())
+navy <- "#1f3a5f"; accent <- "#d95f02"; grey <- "#9aa3ad"
+fig_dir <- here::here("outputs/figures")
+pct <- function(x, d = 0) paste0(format(round(100 * x, d), nsmall = d), "%")
+```
+
+## 1. The fair test: pretend it is 1 January 2025 (7.1)
+
+A model is only useful if it predicts the future, so everything is set up as if we were deciding what to patch on **1 January 2025**, using only what was known that day:
+
+| | Which CVEs | What counts as "exploited" |
+| --- | --- | --- |
+| **Training set** | Published 2016–2021 | Added to KEV **before** 1 January 2025 |
+| **Test set** | Published 2022–2024 and **not yet** in KEV on 1 January 2025 | Added to KEV **after** 1 January 2025, up to our download (October 2026) |
+
+The EPSS we compare against is the snapshot from 1 January 2025. Today's EPSS already "knows" which CVEs were exploited since then, so it would be unfair to our model.
+
+**Why 2022–2024 and not just 2024.** The playbook suggests testing on 2024 CVEs only, but only 35 of them were added to KEV after 1 January 2025. That is under the playbook's minimum of about 50. Moving everything a year earlier would need an EPSS snapshot from 1 January 2024, which we did not download. Widening the test set to CVEs published 2022–2024 keeps the same fair date and gives enough exploited cases.
+
+```{r split}
+v <- readRDS(here::here("data/processed/vulns.rds")) |>
+  filter(!is.na(cvss_score)) |>
+  mutate(across(c(says_rce, says_auth_bypass, says_sqli), as.numeric))
+
+T0    <- as_date("2025-01-01")   # the prediction date
+SPLIT <- as_date("2022-01-01")   # training CVEs are published before this
+
+train <- v |>
+  filter(published < SPLIT) |>
+  mutate(target = factor(if_else(!is.na(kev_date_added) & kev_date_added < T0, "yes", "no"),
+                         levels = c("yes", "no")))
+
+test <- v |>
+  filter(published >= SPLIT, published < T0) |>
+  filter(is.na(kev_date_added) | kev_date_added >= T0) |>       # not yet known on the prediction date
+  mutate(target = factor(if_else(!is.na(kev_date_added), "yes", "no"), levels = c("yes", "no")))
+
+split_summary <- bind_rows(
+  train |> count(target) |> mutate(set = "Training (2016-2021)"),
+  test  |> count(target) |> mutate(set = "Test (2022-2024)")
+) |> pivot_wider(names_from = target, values_from = n) |>
+  mutate(total = yes + no, share_yes = pct(yes / total, 2))
+split_summary
+n_test_yes <- sum(test$target == "yes")
+```
+
+The test set has **`r comma(nrow(test))` CVEs, of which `r n_test_yes` were added to KEV after 1 January 2025**. Those `r n_test_yes` are what a good ranking should put near the top.
+
+## 2. Preparing the features (7.2)
+
+```{r recipe}
+set.seed(429)   # fixes the random sample drawn by step_downsample, so results are the same every run
+rec <- recipe(target ~ cvss_score + attack_vector + attack_complexity + privileges_required +
+                user_interaction + scope + confidentiality + integrity + availability +
+                cwe + vendor + says_rce + says_auth_bypass + says_sqli + desc_length,
+              data = train) |>
+  step_novel(all_nominal_predictors()) |>               # values never seen in training become "new"
+  step_unknown(all_nominal_predictors()) |>             # missing values become "unknown"
+  step_other(cwe, vendor, threshold = 0.005) |>         # rare weakness types and vendors become "other"
+  step_dummy(all_nominal_predictors()) |>
+  step_zv(all_predictors()) |>
+  step_downsample(target, under_ratio = 10, seed = 429)  # keep 10 non-exploited per exploited (training only)
+```
+
+In plain words:
+
+- **`step_novel`** handles vendors or weakness types that appear in new data but never in training, so the model can still score them.
+- **`step_other`** groups rare weakness types and vendors into "other", using the training data only.
+- **`step_downsample`** deals with the imbalance. Fewer than 1 in 100 CVEs are exploited, so without it a model learns to say "no" every time. It only affects training; the test set is never downsampled.
+- **Left out on purpose:** `n_references` (references pile up after a bug is exploited, so it leaks the answer), `epss_2025_01_01` (that is the benchmark we compare against), and every CISA or SSVC field.
+
+## 3. Picking the model with cross-validation, on training data only (7.3)
+
+We try two models: **logistic regression** (simple and easy to explain) and a **random forest** (more flexible). Each is tested on 5 folds of the training data. The test set is not touched until the end.
+
+The main measure is **PR-AUC** (area under the precision-recall curve), which suits rare events better than accuracy. A model that ranks randomly scores about the share of exploited CVEs (here under 1%), and a perfect ranking scores 1.
+
+```{r metrics}
+# PR-AUC (average precision) and ROC-AUC, computed directly so no extra packages are needed.
+# Ties are broken at random, so many CVEs sharing a score (e.g. CVSS 9.8) are treated fairly.
+pr_auc <- function(score, y, seed = 429) {
+  set.seed(seed)
+  o <- order(-score, runif(length(score)))
+  hit <- (y == "yes")[o]
+  precision_at_hit <- cumsum(hit)[hit] / which(hit)
+  mean(precision_at_hit)
+}
+roc_auc <- function(score, y) {
+  r <- rank(score); pos <- y == "yes"
+  n1 <- sum(pos); n0 <- sum(!pos)
+  (sum(r[pos]) - n1 * (n1 + 1) / 2) / (as.numeric(n1) * n0)
+}
+
+fit_model <- function(model, data) {
+  if (model == "Logistic regression") {
+    glm(target ~ ., data = mutate(data, target = target == "yes"), family = binomial)
+  } else {
+    ranger(target ~ ., data = data, num.trees = 500, probability = TRUE,
+           importance = "impurity", seed = 429)
+  }
+}
+predict_yes <- function(fit, data) {
+  if (inherits(fit, "glm")) predict(fit, data, type = "response")
+  else predict(fit, data)$predictions[, "yes"]
+}
+```
+
+```{r cv}
+set.seed(429)
+folds <- vfold_cv(train, v = 5, strata = target)
+
+cv_results <- map_dfr(c("Logistic regression", "Random forest"), \(model) {
+  map_dfr(seq_along(folds$splits), \(i) {
+    prepped <- prep(rec, training = analysis(folds$splits[[i]]))
+    fit <- fit_model(model, bake(prepped, new_data = NULL))           # downsampled training part
+    held_out <- bake(prepped, new_data = assessment(folds$splits[[i]]))  # untouched held-out part
+    p <- predict_yes(fit, held_out)
+    tibble(model = model, fold = i, pr_auc = pr_auc(p, held_out$target), roc_auc = roc_auc(p, held_out$target))
+  })
+})
+
+cv_summary <- cv_results |>
+  group_by(model) |>
+  summarise(pr_auc_mean = mean(pr_auc), pr_auc_sd = sd(pr_auc),
+            roc_auc_mean = mean(roc_auc), .groups = "drop")
+cv_summary |>
+  transmute(Model = model, `PR-AUC (mean of 5 folds)` = round(pr_auc_mean, 3),
+            `PR-AUC spread (sd)` = round(pr_auc_sd, 3), `ROC-AUC` = round(roc_auc_mean, 3)) |>
+  knitr::kable()
+
+best_model <- cv_summary |> slice_max(pr_auc_mean) |> pull(model)
+```
+
+The **`r best_model`** has the higher PR-AUC in cross-validation, so it is the model we take to the test set.
+
+## 4. Scoring the test set, once (7.4)
+
+```{r score}
+final_prep <- prep(rec, training = train)
+final_fit  <- fit_model(best_model, bake(final_prep, new_data = NULL))
+
+scored <- test |>
+  mutate(.pred_yes = predict_yes(final_fit, bake(final_prep, new_data = test)),
+         epss = coalesce(epss_2025_01_01, 0))          # no EPSS score yet on 1 Jan 2025 = treat as 0
+
+n_no_epss <- sum(is.na(test$epss_2025_01_01))
+test_metrics <- tibble(
+  Ranking = c(paste("Our model:", best_model), "EPSS (as of 1 Jan 2025)", "CVSS score"),
+  `PR-AUC` = c(pr_auc(scored$.pred_yes, scored$target), pr_auc(scored$epss, scored$target),
+               pr_auc(scored$cvss_score, scored$target)),
+  `ROC-AUC` = c(roc_auc(scored$.pred_yes, scored$target), roc_auc(scored$epss, scored$target),
+                roc_auc(scored$cvss_score, scored$target))
+)
+test_metrics |> mutate(`PR-AUC` = round(`PR-AUC`, 4), `ROC-AUC` = round(`ROC-AUC`, 3)) |> knitr::kable()
+baseline <- mean(scored$target == "yes")
+```
+
+For comparison, a random ranking would have a PR-AUC of about `r sprintf('%.4f', baseline)` (the share of test CVEs that were later exploited). All three PR-AUC values are small because only `r n_test_yes` of `r comma(nrow(test))` CVEs were later exploited; what matters is how they compare with each other and with random. `r comma(n_no_epss)` test CVEs had no EPSS score on 1 January 2025, mostly because they were published in the last days of 2024; they are given an EPSS of 0.
+
+## 5. The headline chart: effort vs coverage (7.5)
+
+Sort the test CVEs by each score, from most to least dangerous, and walk down the list. **Effort** is the share of CVEs patched so far. **Coverage** is the share of the later-exploited ones caught so far.
+
+```{r curves}
+coverage_curve <- function(data, score, label, seed = 429) {
+  set.seed(seed)
+  data |>
+    slice_sample(prop = 1) |>                 # shuffle first, so ties are broken fairly
+    arrange(desc({{ score }})) |>
+    mutate(effort = row_number() / n(),
+           coverage = cumsum(target == "yes") / sum(target == "yes"),
+           strategy = label) |>
+    select(strategy, effort, coverage)
+}
+
+model_label <- "Our model"
+curves <- bind_rows(
+  coverage_curve(scored, .pred_yes, model_label),
+  coverage_curve(scored, epss, "EPSS (as of 1 Jan 2025)"),
+  coverage_curve(scored, cvss_score, "CVSS score")
+)
+at <- function(e) curves |> group_by(strategy) |> slice_min(abs(effort - e), n = 1, with_ties = FALSE) |>
+  ungroup() |> mutate(budget = e)
+at10 <- at(0.10)
+cov10 <- setNames(at10$coverage, at10$strategy)
+```
+
+```{r chart}
+#| fig-width: 10
+#| fig-height: 5.5
+p <- curves |>
+  filter(effort <= 0.5) |>
+  ggplot(aes(effort, coverage, colour = strategy)) +
+  annotate("segment", x = 0, y = 0, xend = 0.5, yend = 0.5, linetype = "dashed", colour = "grey60") +
+  annotate("text", x = 0.43, y = 0.37, label = "patching at random", colour = "grey45", size = 3.5) +
+  geom_vline(xintercept = 0.10, colour = "grey85") +
+  geom_step(linewidth = 1) +
+  geom_point(data = at10, size = 3) +
+  geom_text(data = at10, aes(label = pct(coverage)), hjust = -0.3, vjust = 1.2, size = 4, show.legend = FALSE) +
+  scale_colour_manual(values = setNames(c(navy, accent, grey), c(model_label, "EPSS (as of 1 Jan 2025)", "CVSS score"))) +
+  scale_x_continuous(labels = percent, limits = c(0, 0.5)) +
+  scale_y_continuous(labels = percent, limits = c(0, 1)) +
+  labs(title = paste0("Patching the top 10%: our model catches ", pct(cov10[[model_label]]),
+                      ", EPSS ", pct(cov10[["EPSS (as of 1 Jan 2025)"]]), ", CVSS ", pct(cov10[["CVSS score"]])),
+       subtitle = paste0(comma(nrow(test)), " CVEs published 2022-2024, ranked on 1 January 2025. ",
+                         n_test_yes, " were added to KEV afterwards."),
+       x = "Share of vulnerabilities patched (most urgent first)",
+       y = "Share of later-exploited vulnerabilities caught", colour = NULL)
+p
+ggsave(file.path(fig_dir, "p3_effort_coverage.png"), p, width = 10, height = 5.5, dpi = 300, bg = "white")
+```
+
+## 6. The summary table (7.6)
+
+```{r summary-table}
+coverage_table <- bind_rows(at(0.01), at(0.05), at(0.10), at(0.20)) |>
+  mutate(budget = paste("Top", pct(budget))) |>
+  select(budget, strategy, coverage) |>
+  pivot_wider(names_from = strategy, values_from = coverage) |>
+  mutate(across(-budget, pct)) |>
+  rename(`Share patched` = budget)
+knitr::kable(coverage_table, caption = "Coverage: share of later-exploited CVEs caught at each effort level")
+
+# The common real-world rule: "patch everything rated High or Critical"
+rule <- function(data, keep, label) {
+  data |> summarise(Rule = label,
+                    Effort = mean(keep),
+                    Coverage = sum(keep & target == "yes") / sum(target == "yes"),
+                    Efficiency = sum(keep & target == "yes") / sum(keep))
+}
+rules <- bind_rows(
+  rule(scored, scored$cvss_score >= 7, "Patch every CVE with CVSS >= 7 (High and Critical)"),
+  rule(scored, scored$cvss_score >= 9, "Patch every CVE with CVSS >= 9 (Critical)"),
+  rule(scored, rank(-scored$.pred_yes, ties.method = "first") <= 0.10 * nrow(scored), "Our model: patch the top 10%"),
+  rule(scored, rank(-scored$epss, ties.method = "first") <= 0.10 * nrow(scored), "EPSS: patch the top 10%")
+)
+rules |> mutate(across(c(Effort, Coverage), pct), Efficiency = pct(Efficiency, 2)) |>
+  knitr::kable(caption = "Effort, coverage and efficiency of simple patching rules")
+high <- rules |> slice(1)
+```
+
+**Coverage** is the share of the CVEs that really mattered that you caught. **Efficiency** is the share of the CVEs you patched that really mattered. These are the terms the EPSS researchers use. The usual rule, "patch everything High or Critical", means patching `r pct(high$Effort)` of all CVEs to catch `r pct(high$Coverage)` of the later-exploited ones, with an efficiency of only `r pct(high$Efficiency, 2)`.
+
+### How sure can we be? (bootstrap)
+
+With only `r n_test_yes` exploited CVEs in the test set, the coverage numbers have real uncertainty. We resample the test set 1,000 times and recompute coverage at the top 10%.
+
+```{r bootstrap}
+cov_at <- function(score, y, e = 0.10) {
+  k <- ceiling(e * length(score))
+  top <- order(-score, runif(length(score)))[seq_len(k)]
+  sum(y[top] == "yes") / sum(y == "yes")
+}
+set.seed(429)
+boot <- map_dfr(1:1000, \(b) {
+  d <- scored[sample(nrow(scored), replace = TRUE), ]
+  tibble(model = cov_at(d$.pred_yes, d$target), epss = cov_at(d$epss, d$target), cvss = cov_at(d$cvss_score, d$target))
+})
+ci <- function(x) paste0(pct(quantile(x, 0.025)), " to ", pct(quantile(x, 0.975)))
+tibble(Comparison = c("Our model", "EPSS", "CVSS", "Our model minus CVSS", "Our model minus EPSS"),
+       `95% range at top 10%` = c(ci(boot$model), ci(boot$epss), ci(boot$cvss),
+                                  ci(boot$model - boot$cvss), ci(boot$model - boot$epss))) |>
+  knitr::kable()
+beats_cvss <- quantile(boot$model - boot$cvss, 0.025) > 0
+vs_epss_lo <- quantile(boot$model - boot$epss, 0.025); vs_epss_hi <- quantile(boot$model - boot$epss, 0.975)
+```
+
+### Leak check
+
+If a model matches or beats EPSS, the first question is whether it is peeking at the answer. Since 2024 NVD has prioritised analysing CVEs that appear in KEV, and that analysis fills in fields such as the vendor. So we compare those fields for exploited and non-exploited test CVEs.
+
+```{r leak-check}
+scored |>
+  group_by(`Later exploited` = target) |>
+  summarise(CVEs = n(),
+            `Vendor missing` = pct(mean(is.na(vendor)), 1),
+            `Scored by NVD itself` = pct(mean(cvss_scored_by == "nvd@nist.gov"), 1)) |>
+  knitr::kable()
+
+# Re-test without the CVEs that have no vendor, using the same ranking method as the headline chart
+cov10_of <- function(data) {
+  bind_rows(coverage_curve(data, .pred_yes, "Our model"),
+            coverage_curve(data, epss, "EPSS"),
+            coverage_curve(data, cvss_score, "CVSS")) |>
+    group_by(strategy) |> slice_min(abs(effort - 0.10), n = 1, with_ties = FALSE) |>
+    ungroup() |> select(strategy, coverage)
+}
+left_join(cov10_of(scored) |> rename(`Coverage at top 10% (all test CVEs)` = coverage),
+          cov10_of(filter(scored, !is.na(vendor))) |> rename(`Coverage at top 10% (vendor known)` = coverage),
+          by = "strategy") |>
+  rename(Ranking = strategy) |>
+  mutate(across(-Ranking, pct)) |>
+  knitr::kable()
+```
+
+Missing vendors occur only among CVEs that were never exploited, but the training data has no missing vendors at all, so the model cannot have learned "missing vendor means safe". Dropping those CVEs leaves our model's and EPSS's coverage almost unchanged. CVSS moves more because thousands of CVEs share the same score (for example 9.8), so its coverage depends on how ties fall; the bootstrap ranges above take this into account. NVD scored a larger share of the later-exploited CVEs itself, which affects the CVSS ranking as much as our model; it is listed as a limitation below.
+
+## 7. What drove the model (7.7)
+
+```{r importance}
+#| fig-width: 10
+#| fig-height: 5.5
+if (inherits(final_fit, "ranger")) {
+  imp <- tibble(feature = names(final_fit$variable.importance), importance = final_fit$variable.importance)
+  imp_label <- "Importance (impurity decrease)"
+} else {
+  co <- summary(final_fit)$coefficients
+  imp <- tibble(feature = rownames(co), importance = abs(co[, "z value"])) |> filter(feature != "(Intercept)")
+  imp_label <- "Importance (absolute z value)"
+}
+top_imp <- imp |> slice_max(importance, n = 15) |>
+  mutate(feature = str_replace_all(feature, "_", " "))
+p_imp <- ggplot(top_imp, aes(importance, fct_reorder(feature, importance))) +
+  geom_col(fill = navy, width = 0.7) +
+  labs(title = paste0("The model leans most on ", top_imp$feature[1], ", ", top_imp$feature[2], " and ", top_imp$feature[3]),
+       subtitle = paste("Top 15 features of the", tolower(best_model)),
+       x = imp_label, y = "Feature")
+p_imp
+ggsave(file.path(fig_dir, "p3_feature_importance.png"), p_imp, width = 10, height = 5.5, dpi = 300, bg = "white")
+```
+
+These can be compared with the Part 2 findings in `analysis/part2_exploited.qmd`: the CVSS score, the vendor (especially Microsoft) and "remote code execution" in the description were each linked to exploitation there.
+
+## 8. Findings (7.8)
+
+```{r findings}
+m_pr <- test_metrics$`PR-AUC`[1]; e_pr <- test_metrics$`PR-AUC`[2]; c_pr <- test_metrics$`PR-AUC`[3]
+```
+
+1. **The fair test.** Ranking `r comma(nrow(test))` CVEs published 2022–2024 using only what was known on 1 January 2025, `r n_test_yes` of them were added to KEV afterwards.
+2. **Our model vs CVSS.** Patching the top 10% by our model catches `r pct(cov10[[model_label]])` of the later-exploited CVEs, against `r pct(cov10[["CVSS score"]])` by CVSS score. PR-AUC: `r sprintf('%.4f', m_pr)` vs `r sprintf('%.4f', c_pr)`. `r if (beats_cvss) "The bootstrap range for the difference is above zero, so the model clearly beats CVSS." else "The bootstrap range for the difference includes zero, so we cannot say the model clearly beats CVSS."`
+3. **Our model vs EPSS.** EPSS catches `r pct(cov10[["EPSS (as of 1 Jan 2025)"]])` at the top 10% (PR-AUC `r sprintf('%.4f', e_pr)`). The difference between our model and EPSS at the top 10% ranges from `r pct(vs_epss_lo)` to `r pct(vs_epss_hi)`. `r if (vs_epss_hi < 0) "EPSS is clearly better." else if (vs_epss_lo > 0) "Our model is clearly better." else "Neither is clearly better."`
+4. **The usual rule is wasteful.** Patching everything rated High or Critical means patching `r pct(high$Effort)` of CVEs to catch `r pct(high$Coverage)` of the later-exploited ones; only `r pct(high$Efficiency, 2)` of what you patch turns out to matter.
+5. **Why this matters.** EPSS uses much richer data than ours (exploit code being published, social media, threat feeds), while our model only sees what NVD publishes about the bug itself. Reaching a similar level with public NVD fields alone is a useful result, but with only `r n_test_yes` exploited CVEs in the test set we cannot say which of the two is better.
+
+## Limitations
+
+- **Small number of positives.** Only `r n_test_yes` CVEs in the test set were later exploited, so percentages can move by several points (see the bootstrap ranges).
+- **CVSS scores were downloaded in 2026.** Some may have been revised after 1 January 2025, which could slightly favour the CVSS ranking and our model (which uses CVSS fields).
+- **KEV is US-focused.** "Exploited" means *known* exploited in KEV; some CVEs not in KEV were probably exploited too.
+- **Wider test window than the playbook.** The test uses CVEs published 2022–2024 rather than only 2024, because 2024 alone had too few exploited cases. Older test CVEs have had longer to be scored by EPSS before the prediction date, which may help EPSS.

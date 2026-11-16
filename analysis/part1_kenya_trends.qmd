@@ -1,0 +1,298 @@
+---
+title: "Part 1: How have detected cyber threats in Kenya changed?"
+subtitle: "Phase 5 of the playbook: trends in KE-CIRT/CC quarterly figures, January 2020 to June 2026"
+format:
+  html:
+    embed-resources: true
+    toc: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r setup}
+library(tidyverse)
+library(broom)
+library(scales)
+
+source(here::here("R/theme_dataforge.R"))
+theme_set(theme_dataforge())
+navy <- "#1f3a5f"; accent <- "#d95f02"; grey <- "#b8bec6"
+fig_dir <- here::here("outputs/figures")
+
+big <- label_number(scale_cut = cut_short_scale(), accuracy = 0.1)
+pct <- function(x, d = 0) paste0(format(round(x, d), nsmall = d, big.mark = ","), "%")
+qlabel <- function(d) paste0(c("Jan-Mar", "Apr-Jun", "Jul-Sep", "Oct-Dec")[(month(d) - 1) %/% 3 + 1], " ", year(d))
+
+# Built by scripts/07_extract_ca_figures.R and scripts/08_build_ca_quarterly.R
+ca     <- read_csv(here::here("data/processed/ca_quarterly.csv"), show_col_types = FALSE)
+totals <- read_csv(here::here("data/processed/ca_totals.csv"), show_col_types = FALSE)
+```
+
+**Words used in this notebook.** The Communications Authority counts *detected threat events*: mostly scans and attempts that were blocked. They are not attacks that succeeded and not breaches. "Rose" and "fell" describe the counts; nothing here says what caused them.
+
+## 1. What data we have
+
+```{r coverage}
+totals |>
+  summarise(quarters = n(),
+            first = qlabel(min(period_start)), last = qlabel(max(period_start)),
+            with_categories = sum(has_categories),
+            totals_only = sum(!has_categories))
+```
+
+All 26 quarters from January 2020 to June 2026 have a total. Of these:
+
+- **21 quarters have a breakdown by category.** The first 10 were typed in by hand and double-checked. The rest were read from the report text by `scripts/07_extract_ca_figures.R`, which checks that every figure appears on its recorded page and that the categories add up to the printed total.
+- **5 quarters (April 2022 to June 2023) have totals only.** Those reports show categories in charts without numbers.
+- **The category names changed in July 2023.** "System vulnerabilities" became "System Attacks", and Brute force and Mobile application attacks were added. `docs/ca_category_map.csv` lines the names up, and `docs/decisions.md` explains each merge.
+
+## 2. Total detected events per quarter
+
+```{r totals-chart}
+#| fig-width: 10
+#| fig-height: 5
+first_q <- totals |> slice_min(period_start)
+last_q  <- totals |> slice_max(period_start)
+peak    <- totals |> slice_max(reported_total)
+growth_x <- last_q$reported_total / first_q$reported_total
+
+p0 <- ggplot(totals, aes(period_start, reported_total)) +
+  geom_line(colour = grey, linewidth = 0.8) +
+  geom_point(aes(colour = has_categories), size = 2.6) +
+  geom_text(data = bind_rows(first_q, peak, last_q),
+            aes(label = big(reported_total)), vjust = -1.1, size = 3.6, fontface = "bold") +
+  scale_y_log10(labels = label_number(scale_cut = cut_short_scale()),
+                breaks = c(1e7, 1e8, 1e9, 1e10), limits = c(1e7, 1e10)) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  scale_colour_manual(values = c(`TRUE` = navy, `FALSE` = accent),
+                      labels = c(`TRUE` = "Total and categories", `FALSE` = "Total only")) +
+  labs(title = paste0("Detected threat events rose about ", round(growth_x), "-fold, from ",
+                      big(first_q$reported_total), " to ", big(last_q$reported_total), " a quarter"),
+       subtitle = "KE-CIRT/CC detected threat events per quarter, January 2020 to June 2026 (log scale)",
+       x = "Quarter", y = "Detected events", colour = NULL)
+p0
+ggsave(file.path(fig_dir, "p1_totals.png"), p0, width = 10, height = 5, dpi = 300, bg = "white")
+```
+
+The scale is logarithmic: each gridline is ten times the one below. Detected events went from `r big(first_q$reported_total)` in `r qlabel(first_q$period_start)` to `r big(last_q$reported_total)` in `r qlabel(last_q$period_start)`, and peaked at `r big(peak$reported_total)` in `r qlabel(peak$period_start)`. The series is jumpy: it more than tripled in some quarters and fell by more than three-quarters in others.
+
+## 3. Each category over time (5.1 and 5.2)
+
+```{r series}
+by_cat <- ca |>
+  group_by(category_std, period_start) |>
+  summarise(events = sum(events), .groups = "drop") |>
+  complete(category_std, period_start = totals$period_start) |>   # missing quarters show as gaps
+  arrange(category_std, period_start)
+
+by_cat |> group_by(category_std) |>
+  summarise(quarters_with_data = sum(!is.na(events)),
+            first = qlabel(min(period_start[!is.na(events)])),
+            last = qlabel(max(period_start[!is.na(events)])))
+```
+
+```{r chart1}
+#| fig-width: 11
+#| fig-height: 6.5
+p1 <- ggplot(by_cat, aes(period_start, events)) +
+  geom_line(colour = navy) +
+  geom_point(colour = navy, size = 1.4) +
+  facet_wrap(~ category_std, scales = "free_y") +
+  scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
+  labs(title = "System attacks grew fastest; every category is higher in 2026 than when first reported",
+       subtitle = "Detected events per quarter by category. Each panel has its own scale. Gaps are quarters without a category breakdown.",
+       x = "Quarter", y = "Detected events per quarter")
+p1
+ggsave(file.path(fig_dir, "p1_categories.png"), p1, width = 11, height = 6.5, dpi = 300, bg = "white")
+```
+
+## 4. Quarter-on-quarter and year-on-year change (5.3)
+
+Year-on-year compares the same quarter a year apart, so seasonal patterns cancel out. It is the main measure; quarter-on-quarter shows the jumps.
+
+```{r changes}
+totals_change <- totals |>
+  arrange(period_start) |>
+  mutate(qoq_pct = 100 * (reported_total / lag(reported_total) - 1),
+         yoy_pct = 100 * (reported_total / lag(reported_total, 4) - 1))
+
+totals_change |>
+  transmute(Quarter = qlabel(period_start), `Detected events` = comma(reported_total),
+            `vs previous quarter` = pct(qoq_pct), `vs same quarter last year` = pct(yoy_pct)) |>
+  knitr::kable()
+
+cat_change <- by_cat |>
+  group_by(category_std) |>
+  mutate(qoq_pct = 100 * (events / lag(events) - 1),
+         yoy_pct = 100 * (events / lag(events, 4) - 1)) |>
+  ungroup()
+
+latest <- max(cat_change$period_start)
+cat_change |>
+  filter(period_start == latest) |>
+  transmute(Category = category_std, `Detected events` = comma(events),
+            `vs same quarter last year` = pct(yoy_pct)) |>
+  arrange(desc(`Detected events`)) |>
+  knitr::kable(caption = paste("Year-on-year change by category,", qlabel(latest)))
+```
+
+```{r yoy-stats}
+yoy_up <- totals_change |> filter(!is.na(yoy_pct)) |> summarise(up = sum(yoy_pct > 0), n = n())
+```
+
+Of the `r yoy_up$n` quarters that can be compared with the same quarter a year earlier, `r yoy_up$up` were higher.
+
+## 5. What share each category takes (5.4)
+
+```{r chart2}
+#| fig-width: 11
+#| fig-height: 5
+shares <- by_cat |>
+  filter(!is.na(events)) |>
+  group_by(period_start) |>
+  mutate(share = events / sum(events)) |>
+  ungroup()
+
+cat_colours <- c("System attacks" = navy, "Malware" = accent, "DDoS and botnets" = "#7a9cc6",
+                 "Brute force" = "#e6a15c", "Web application attacks" = grey,
+                 "Mobile application attacks" = "#4d4d4d")
+
+sys_share <- shares |> filter(category_std == "System attacks")
+p2 <- ggplot(shares, aes(period_start, share, fill = category_std)) +
+  geom_col(width = 80) +
+  scale_fill_manual(values = cat_colours) +
+  scale_y_continuous(labels = percent) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  labs(title = paste0("System attacks went from ", pct(100 * first(sys_share$share), 1),
+                      " of detected events to ", pct(100 * last(sys_share$share)), ""),
+       subtitle = "Share of detected events by category. The gap is April 2022 to June 2023, when reports gave totals only.",
+       x = "Quarter", y = "Share of detected events", fill = NULL)
+p2
+ggsave(file.path(fig_dir, "p1_shares.png"), p2, width = 11, height = 5, dpi = 300, bg = "white")
+```
+
+With system attacks at over 90% of recent quarters, the other categories are invisible. Here is the same chart without them:
+
+```{r chart2b}
+#| fig-width: 11
+#| fig-height: 5
+shares_ex <- by_cat |>
+  filter(!is.na(events), category_std != "System attacks") |>
+  group_by(period_start) |>
+  mutate(share = events / sum(events)) |>
+  ungroup()
+mal_ex <- shares_ex |> filter(category_std == "Malware") |> arrange(period_start)
+
+p2b <- ggplot(shares_ex, aes(period_start, share, fill = category_std)) +
+  geom_col(width = 80) +
+  scale_fill_manual(values = cat_colours) +
+  scale_y_continuous(labels = percent) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  labs(title = paste0("Excluding system attacks, malware fell from ", pct(100 * first(mal_ex$share)),
+                      " to ", pct(100 * last(mal_ex$share)), " as brute force and web application attacks grew"),
+       subtitle = "Share of detected events by category, system attacks removed",
+       x = "Quarter", y = "Share of detected events (excluding system attacks)", fill = NULL)
+p2b
+ggsave(file.path(fig_dir, "p1_shares_without_system.png"), p2b, width = 11, height = 5, dpi = 300, bg = "white")
+```
+
+## 6. Trend per category, with a confidence range (5.5)
+
+For each series we fit a straight line to the log of detected events. The slope becomes average growth per quarter, with a 95% range. If the range includes zero, there is no clear trend.
+
+```{r trends}
+fit_trend <- function(d) {
+  d <- d |> filter(!is.na(events), events > 0) |>
+    mutate(t = as.numeric(period_start - min(period_start)) / 91.31)   # time in quarters
+  tidy(lm(log(events) ~ t, data = d), conf.int = TRUE) |>
+    filter(term == "t") |>
+    mutate(quarters = nrow(d))
+}
+
+trends <- bind_rows(
+  totals |> transmute(series = "All detected events", period_start, events = reported_total) |>
+    group_by(series) |> group_modify(~ fit_trend(.x)),
+  by_cat |> rename(series = category_std) |> group_by(series) |> group_modify(~ fit_trend(.x))
+) |>
+  ungroup() |>
+  transmute(series, quarters,
+            growth_per_qtr = 100 * (exp(estimate) - 1),
+            low = 100 * (exp(conf.low) - 1), high = 100 * (exp(conf.high) - 1),
+            growth_per_year = 100 * (exp(4 * estimate) - 1),
+            verdict = case_when(low > 0 ~ "Clearly rising", high < 0 ~ "Clearly falling", TRUE ~ "No clear trend"))
+
+trends |>
+  arrange(desc(growth_per_qtr)) |>
+  transmute(Series = series, Quarters = quarters,
+            `Average growth per quarter` = pct(growth_per_qtr, 1),
+            `95% range` = paste0(pct(low, 1), " to ", pct(high, 1)),
+            `Equivalent per year` = pct(growth_per_year),
+            Verdict = verdict) |>
+  knitr::kable()
+```
+
+```{r trend-chart}
+#| fig-width: 10
+#| fig-height: 4.5
+tot_trend <- trends |> filter(series == "All detected events")
+p3 <- trends |>
+  mutate(series = fct_reorder(series, growth_per_qtr)) |>
+  ggplot(aes(growth_per_qtr, series, colour = verdict)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_errorbarh(aes(xmin = low, xmax = high), height = 0.25, linewidth = 0.8) +
+  geom_point(size = 3) +
+  scale_colour_manual(values = c("Clearly rising" = navy, "No clear trend" = grey, "Clearly falling" = accent)) +
+  labs(title = paste0("All detected events grew by about ", pct(tot_trend$growth_per_qtr), " a quarter on average"),
+       subtitle = "Average growth per quarter with 95% range (log-linear trend). A range crossing zero means no clear trend.",
+       x = "Average growth per quarter (%)", y = "Series", colour = NULL)
+p3
+ggsave(file.path(fig_dir, "p1_trends.png"), p3, width = 10, height = 4.5, dpi = 300, bg = "white")
+```
+
+## 7. The biggest jumps and how the Communications Authority explains them (5.6)
+
+```{r jumps}
+jumps <- totals_change |> filter(!is.na(qoq_pct)) |> slice_max(abs(qoq_pct), n = 6)
+jumps |>
+  transmute(Quarter = qlabel(period_start), `Detected events` = big(reported_total),
+            `vs previous quarter` = pct(qoq_pct)) |>
+  knitr::kable()
+```
+
+What each report says about its own jump (quoted, with the PDF page):
+
+| Quarter | Change | The report's explanation |
+| --- | --- | --- |
+| Oct-Dec 2023 | +943% | "This exponential increase is attributed to enhancement of our cyber threat monitoring capabilities and the existence of vulnerable systems due to system misconfigurations." (`CA_cyber_2023-10.pdf`, p. 5) |
+| Oct-Dec 2025 | +441% | "The cyber threats detected were largely attributable to inadequate system patching, insufficient user awareness of phishing and other social engineering threat vectors, and the increasing exploitation of AI-driven and machine-learning technologies by malicious actors." (`CA_cyber_2025-10.pdf`, p. 7) |
+| Jul-Sep 2021 | +269% | "The rise in cyber threat events detected was attributed to the significant increase in targeted attacks at critical systems and services; increased activity by ransomware groups; adoption of more sophisticated tools by cyber threat actors; increased targeted attacks at Internet of Things (IoT) devices ..." (`CA_cyber_2021-07.pdf`, p. 28) |
+| Jan-Mar 2025 | +202% | "Inadequate patching of systems, low user awareness of various threat vectors including phishing and other forms of social engineering attacks, and the increasing use of AI-driven attacks and machine learning technologies are among the reasons for the rise in cyber threats that have been detected." (`CA_cyber_2025-01.pdf`, p. 7) |
+| Jul-Sep 2022 | +199% | The report gives the increase but no reason (`CA_cyber_2022-07.pdf`, p. 12). |
+| Jul-Sep 2025 | -82% | The report gives the decrease but no reason specific to it (`CA_cyber_2025-07.pdf`, p. 7). |
+
+The biggest jump, October to December 2023, is partly put down by the Authority itself to **better monitoring**. Changes in how events are detected and counted are therefore a likely part of the story, and growth in these figures should not be read as growth in attacks alone. This is a hypothesis we cannot test with the published totals.
+
+## 8. Findings
+
+```{r findings-numbers}
+sys_tr <- trends |> filter(series == "System attacks")
+mal_tr <- trends |> filter(series == "Malware")
+yoy_last <- totals_change |> slice_max(period_start)
+```
+
+1. Detected threat events rose from `r big(first_q$reported_total)` in `r qlabel(first_q$period_start)` to `r big(last_q$reported_total)` in `r qlabel(last_q$period_start)`, about `r round(growth_x)` times higher, peaking at `r big(peak$reported_total)` in `r qlabel(peak$period_start)`.
+2. On average, detected events grew by `r pct(tot_trend$growth_per_qtr)` a quarter (95% range `r pct(tot_trend$low)` to `r pct(tot_trend$high)`), equivalent to about `r pct(tot_trend$growth_per_year)` a year. The series is very uneven, with quarterly changes from `r pct(min(totals_change$qoq_pct, na.rm = TRUE))` to `r pct(max(totals_change$qoq_pct, na.rm = TRUE))`.
+3. System attacks drove the growth: their share went from `r pct(100 * first(sys_share$share), 1)` of detected events in `r qlabel(first(sys_share$period_start))` to `r pct(100 * last(sys_share$share))` in `r qlabel(last(sys_share$period_start))`, growing by about `r pct(sys_tr$growth_per_qtr)` a quarter on average.
+4. Malware was the largest category in 2020 but, excluding system attacks, its share fell from `r pct(100 * first(mal_ex$share))` to `r pct(100 * last(mal_ex$share))` as brute force and web application attacks grew.
+5. The Authority attributes its largest jump (October to December 2023, +943%) partly to better monitoring, so some of the growth reflects detection rather than attacks. All figures are detected events, not breaches.
+
+## Limitations
+
+- The figures are national totals of detected events, mostly blocked attempts, not confirmed attacks or breaches.
+- Five quarters (April 2022 to June 2023) have totals but no category breakdown.
+- Category names changed in July 2023. Merging "System vulnerabilities" with "System Attacks" and "DDOS/Botnet" with "Distributed Denial of Service Attacks" is a judgement explained in `docs/decisions.md`. Brute force and mobile application attacks are only reported from July 2023, so their earlier absence does not mean zero.
+- Detection methods change over time; the Authority itself credits better monitoring for part of the largest jump.
+- With 21 to 26 points per series and very uneven changes, the trend ranges are wide, and a log-linear line is a summary, not a forecast.

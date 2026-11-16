@@ -1,0 +1,107 @@
+fy,quarter,period_start,category_raw,category_std,events,reported_total,advisories,source_page,source,note
+2019/20,3,2020-01-01,Malware,Malware,33747678,34644531,17844,4,typed by hand (double entry),
+2019/20,3,2020-01-01,Web Application Attacks,Web application attacks,582281,34644531,17844,4,typed by hand (double entry),
+2019/20,3,2020-01-01,DDOS/Botnet,DDoS and botnets,287481,34644531,17844,4,typed by hand (double entry),"page 3 calls it ""botnet attack events"""
+2019/20,3,2020-01-01,System vulnerabilities,System attacks,27091,34644531,17844,4,typed by hand (double entry),
+2019/20,4,2020-04-01,Malware,Malware,12508275,13909069,20839,3,typed by hand (double entry),"total p3 and p5, advisories p6; p3 typo says 2010"
+2019/20,4,2020-04-01,Web Application Attacks,Web application attacks,1102840,13909069,20839,3,typed by hand (double entry),
+2019/20,4,2020-04-01,DDOS/Botnet,DDoS and botnets,267931,13909069,20839,3,typed by hand (double entry),p5 calls it Botnet/DDOS
+2019/20,4,2020-04-01,System vulnerabilities,System attacks,30023,13909069,20839,3,typed by hand (double entry),"p5 text says 12.9 million, printed total is 13,909,069"
+2020/21,1,2020-07-01,Malware,Malware,31842635,35173937,21728,3,typed by hand (double entry),"total p3, p4; advisories p3, p5"
+2020/21,1,2020-07-01,Web Application Attacks,Web application attacks,2057369,35173937,21728,3,typed by hand (double entry),"total p3, p4; advisories p3, p5"
+2020/21,1,2020-07-01,DDOS/Botnet,DDoS and botnets,1245451,35173937,21728,3,typed by hand (double entry),"total p3, p4; advisories p3, p5"
+2020/21,1,2020-07-01,System vulnerabilities,System attacks,28482,35173937,21728,3,typed by hand (double entry),"total p3, p4; advisories p3, p5"
+2020/21,2,2020-10-01,Malware,Malware,46069525,56206097,21513,7,typed by hand (double entry),total on p4
+2020/21,2,2020-10-01,Web Application Attacks,Web application attacks,7847457,56206097,21513,9,typed by hand (double entry),total on p4
+2020/21,2,2020-10-01,DDOS/Botnet,DDoS and botnets,2260036,56206097,21513,10,typed by hand (double entry),total on p4; p10 heading BOTNET/DDOS
+2020/21,2,2020-10-01,System vulnerabilities,System attacks,29079,56206097,21513,6,typed by hand (double entry),total on p4
+2020/21,3,2021-01-01,Malware,Malware,21559181,28247819,25506,16,typed by hand (double entry),total and advisories on p10
+2020/21,3,2021-01-01,Web Application Attacks,Web application attacks,3767588,28247819,25506,20,typed by hand (double entry),p20 label typo says malware
+2020/21,3,2021-01-01,DDOS/Botnet,DDoS and botnets,2890847,28247819,25506,26,typed by hand (double entry),p26 typo: previous period says Dec 2021
+2020/21,3,2021-01-01,System vulnerabilities,System attacks,30203,28247819,25506,13,typed by hand (double entry),
+2020/21,4,2021-04-01,Malware,Malware,23053190,38776699,26536,16,typed by hand (double entry),total and advisories on p5
+2020/21,4,2021-04-01,Web Application Attacks,Web application attacks,11272402,38776699,26536,24,typed by hand (double entry),total and advisories on p5
+2020/21,4,2021-04-01,DDOS/Botnet,DDoS and botnets,2564173,38776699,26536,20,typed by hand (double entry),total and advisories on p5
+2020/21,4,2021-04-01,System vulnerabilities,System attacks,1886934,38776699,26536,14,typed by hand (double entry),"total and advisories on p5; p14 prints +6,147.51% vs previous quarter, no cause stated for the size of the rise"
+2021/22,1,2021-07-01,Malware,Malware,70501144,143040599,73578,10,typed by hand (double entry),from FY22 Q3 report trend table; own Q1 report file is wrong
+2021/22,1,2021-07-01,DDOS/Botnet,DDoS and botnets,49816062,143040599,73578,10,typed by hand (double entry),same
+2021/22,1,2021-07-01,System vulnerabilities,System attacks,22245270,143040599,73578,10,typed by hand (double entry),same
+2021/22,1,2021-07-01,Web Application Attacks,Web application attacks,478123,143040599,73578,10,typed by hand (double entry),same
+2021/22,2,2021-10-01,Malware,Malware,66765638,129001520,3018545,10,typed by hand (double entry),from FY22 Q3 report trend table; own Q2 report file is wrong
+2021/22,2,2021-10-01,System vulnerabilities,System attacks,33883205,129001520,3018545,10,typed by hand (double entry),same
+2021/22,2,2021-10-01,DDOS/Botnet,DDoS and botnets,28128957,129001520,3018545,10,typed by hand (double entry),same
+2021/22,2,2021-10-01,Web Application Attacks,Web application attacks,223720,129001520,3018545,10,typed by hand (double entry),same
+2021/22,3,2022-01-01,Malware,Malware,37012510,79175429,2908431,10,typed by hand (double entry),
+2021/22,3,2022-01-01,System vulnerabilities,System attacks,22142796,79175429,2908431,10,typed by hand (double entry),
+2021/22,3,2022-01-01,DDOS/Botnet,DDoS and botnets,19695287,79175429,2908431,10,typed by hand (double entry),
+2021/22,3,2022-01-01,Web Application Attacks,Web application attacks,324836,79175429,2908431,10,typed by hand (double entry),
+2023/24,1,2023-07-01,System Attacks,System attacks,111149684,123899936,5581354,10,read from report text by script,categories from each category's own section; DDoS not reported as detected this quarter
+2023/24,1,2023-07-01,Malware Attacks,Malware,7514964,123899936,5581354,6,read from report text by script,categories from each category's own section; DDoS not reported as detected this quarter
+2023/24,1,2023-07-01,Brute Force Attacks,Brute force,5101538,123899936,5581354,8,read from report text by script,categories from each category's own section; DDoS not reported as detected this quarter
+2023/24,1,2023-07-01,Web Application Attacks,Web application attacks,106603,123899936,5581354,7,read from report text by script,categories from each category's own section; DDoS not reported as detected this quarter
+2023/24,1,2023-07-01,Mobile Application Attacks,Mobile application attacks,27147,123899936,5581354,9,read from report text by script,categories from each category's own section; DDoS not reported as detected this quarter
+2023/24,2,2023-10-01,System Attacks,System attacks,1269267620,1292285408,8061267,5,read from report text by script,DDoS not reported as a detected category this quarter (only in advisories)
+2023/24,2,2023-10-01,Malware Attacks,Malware,13221698,1292285408,8061267,5,read from report text by script,DDoS not reported as a detected category this quarter (only in advisories)
+2023/24,2,2023-10-01,Brute Force Attacks,Brute force,9670849,1292285408,8061267,5,read from report text by script,DDoS not reported as a detected category this quarter (only in advisories)
+2023/24,2,2023-10-01,Web Application Attacks,Web application attacks,72536,1292285408,8061267,5,read from report text by script,DDoS not reported as a detected category this quarter (only in advisories)
+2023/24,2,2023-10-01,Mobile Application Attacks,Mobile application attacks,52705,1292285408,8061267,5,read from report text by script,DDoS not reported as a detected category this quarter (only in advisories)
+2023/24,3,2024-01-01,System Attacks,System attacks,871223680,971440345,8524407,5,read from report text by script,
+2023/24,3,2024-01-01,Distributed Denial of Service Attacks,DDoS and botnets,38646836,971440345,8524407,5,read from report text by script,
+2023/24,3,2024-01-01,Malware Attacks,Malware,33187524,971440345,8524407,5,read from report text by script,
+2023/24,3,2024-01-01,Brute Force Attacks,Brute force,28011638,971440345,8524407,5,read from report text by script,
+2023/24,3,2024-01-01,Web Application Attacks,Web application attacks,199435,971440345,8524407,5,read from report text by script,
+2023/24,3,2024-01-01,Mobile Application Attacks,Mobile application attacks,171232,971440345,8524407,5,read from report text by script,
+2023/24,4,2024-04-01,System Attacks,System attacks,1065325993,1131696878,9347542,5,read from report text by script,
+2023/24,4,2024-04-01,Malware Attacks,Malware,31936666,1131696878,9347542,5,read from report text by script,
+2023/24,4,2024-04-01,Brute Force Attacks,Brute force,26854341,1131696878,9347542,5,read from report text by script,
+2023/24,4,2024-04-01,Distributed Denial of Service Attacks,DDoS and botnets,7333681,1131696878,9347542,5,read from report text by script,
+2023/24,4,2024-04-01,Web Application Attacks,Web application attacks,146903,1131696878,9347542,5,read from report text by script,
+2023/24,4,2024-04-01,Mobile Application Attacks,Mobile application attacks,99294,1131696878,9347542,5,read from report text by script,
+2024/25,1,2024-07-01,System Attacks,System attacks,583696090,657843715,9582347,6,read from report text by script,
+2024/25,1,2024-07-01,Brute Force Attacks,Brute force,38135186,657843715,9582347,6,read from report text by script,
+2024/25,1,2024-07-01,Malware Attacks,Malware,33894268,657843715,9582347,6,read from report text by script,
+2024/25,1,2024-07-01,Distributed Denial of Service Attacks,DDoS and botnets,1826259,657843715,9582347,6,read from report text by script,
+2024/25,1,2024-07-01,Web Application Attacks,Web application attacks,174251,657843715,9582347,6,read from report text by script,
+2024/25,1,2024-07-01,Mobile Application Attacks,Mobile application attacks,117661,657843715,9582347,6,read from report text by script,
+2024/25,2,2024-10-01,System Attacks,System attacks,752441233,840921998,11584581,7,read from report text by script,"advisories: the report's text and category breakdown give 11,584,581; its headline figure says 11,584,949"
+2024/25,2,2024-10-01,Brute Force Attacks,Brute force,34784028,840921998,11584581,7,read from report text by script,"advisories: the report's text and category breakdown give 11,584,581; its headline figure says 11,584,949"
+2024/25,2,2024-10-01,Malware Attacks,Malware,33920406,840921998,11584581,7,read from report text by script,"advisories: the report's text and category breakdown give 11,584,581; its headline figure says 11,584,949"
+2024/25,2,2024-10-01,Distributed Denial of Service Attacks,DDoS and botnets,15095217,840921998,11584581,7,read from report text by script,"advisories: the report's text and category breakdown give 11,584,581; its headline figure says 11,584,949"
+2024/25,2,2024-10-01,Web Application Attacks,Web application attacks,4542939,840921998,11584581,7,read from report text by script,"advisories: the report's text and category breakdown give 11,584,581; its headline figure says 11,584,949"
+2024/25,2,2024-10-01,Mobile Application Attacks,Mobile application attacks,138175,840921998,11584581,7,read from report text by script,"advisories: the report's text and category breakdown give 11,584,581; its headline figure says 11,584,949"
+2024/25,3,2025-01-01,System Attacks,System attacks,2470257079,2538283798,13227909,7,read from report text by script,"the report's categories add up to 2,537,428,868, which is 854,930 (0.03%) less than its printed total; both kept as printed"
+2024/25,3,2025-01-01,Brute Force Attacks,Brute force,33794288,2538283798,13227909,7,read from report text by script,"the report's categories add up to 2,537,428,868, which is 854,930 (0.03%) less than its printed total; both kept as printed"
+2024/25,3,2025-01-01,Malware Attacks,Malware,24549413,2538283798,13227909,7,read from report text by script,"the report's categories add up to 2,537,428,868, which is 854,930 (0.03%) less than its printed total; both kept as printed"
+2024/25,3,2025-01-01,Web Application Attacks,Web application attacks,5081236,2538283798,13227909,7,read from report text by script,"the report's categories add up to 2,537,428,868, which is 854,930 (0.03%) less than its printed total; both kept as printed"
+2024/25,3,2025-01-01,Distributed Denial of Service Attacks,DDoS and botnets,3678789,2538283798,13227909,7,read from report text by script,"the report's categories add up to 2,537,428,868, which is 854,930 (0.03%) less than its printed total; both kept as printed"
+2024/25,3,2025-01-01,Mobile Application Attacks,Mobile application attacks,68063,2538283798,13227909,7,read from report text by script,"the report's categories add up to 2,537,428,868, which is 854,930 (0.03%) less than its printed total; both kept as printed"
+2024/25,4,2025-04-01,System Attacks,System attacks,4492325076,4586682277,17269473,7,read from report text by script,
+2024/25,4,2025-04-01,Malware Attacks,Malware,47397554,4586682277,17269473,7,read from report text by script,
+2024/25,4,2025-04-01,Brute Force Attacks,Brute force,20947973,4586682277,17269473,7,read from report text by script,
+2024/25,4,2025-04-01,Distributed Denial of Service Attacks,DDoS and botnets,13080197,4586682277,17269473,7,read from report text by script,
+2024/25,4,2025-04-01,Web Application Attacks,Web application attacks,12742473,4586682277,17269473,7,read from report text by script,
+2024/25,4,2025-04-01,Mobile Application Attacks,Mobile application attacks,189004,4586682277,17269473,7,read from report text by script,
+2025/26,1,2025-07-01,System Attacks,System attacks,776542757,842320667,19951546,7,read from report text by script,
+2025/26,1,2025-07-01,Malware Attacks,Malware,31676444,842320667,19951546,7,read from report text by script,
+2025/26,1,2025-07-01,Brute Force Attacks,Brute force,18811738,842320667,19951546,7,read from report text by script,
+2025/26,1,2025-07-01,Web Application Attacks,Web application attacks,10417253,842320667,19951546,7,read from report text by script,
+2025/26,1,2025-07-01,Distributed Denial of Service Attacks,DDoS and botnets,4795584,842320667,19951546,7,read from report text by script,
+2025/26,1,2025-07-01,Mobile Application Attacks,Mobile application attacks,76891,842320667,19951546,7,read from report text by script,
+2025/26,2,2025-10-01,System Attacks,System attacks,4375339677,4559229985,21815814,7,read from report text by script,
+2025/26,2,2025-10-01,Malware Attacks,Malware,70907781,4559229985,21815814,7,read from report text by script,
+2025/26,2,2025-10-01,Distributed Denial of Service Attacks,DDoS and botnets,58316952,4559229985,21815814,7,read from report text by script,
+2025/26,2,2025-10-01,Brute Force Attacks,Brute force,42785432,4559229985,21815814,7,read from report text by script,
+2025/26,2,2025-10-01,Web Application Attacks,Web application attacks,11570134,4559229985,21815814,7,read from report text by script,
+2025/26,2,2025-10-01,Mobile Application Attacks,Mobile application attacks,310009,4559229985,21815814,7,read from report text by script,
+2025/26,3,2026-01-01,System Attacks,System attacks,3231465502,3367113840,20581754,7,typed by hand (double entry),
+2025/26,3,2026-01-01,Malware Attacks,Malware,68726238,3367113840,20581754,7,typed by hand (double entry),
+2025/26,3,2026-01-01,Brute Force Attacks,Brute force,46384747,3367113840,20581754,7,typed by hand (double entry),
+2025/26,3,2026-01-01,Web Application Attacks,Web application attacks,12115001,3367113840,20581754,7,typed by hand (double entry),
+2025/26,3,2026-01-01,Distributed Denial of Service Attacks,DDoS and botnets,8202803,3367113840,20581754,7,typed by hand (double entry),
+2025/26,3,2026-01-01,Mobile Application Attacks,Mobile application attacks,219549,3367113840,20581754,7,typed by hand (double entry),
+2025/26,4,2026-04-01,System Attacks,System attacks,2254287819,2355938192,20748489,7,read from report text by script,
+2025/26,4,2026-04-01,Malware Attacks,Malware,58997257,2355938192,20748489,7,read from report text by script,
+2025/26,4,2026-04-01,Brute Force Attacks,Brute force,24243919,2355938192,20748489,7,read from report text by script,
+2025/26,4,2026-04-01,Web Application Attacks,Web application attacks,17406495,2355938192,20748489,7,read from report text by script,
+2025/26,4,2026-04-01,Distributed Denial of Service Attacks,DDoS and botnets,819325,2355938192,20748489,7,read from report text by script,
+2025/26,4,2026-04-01,Mobile Application Attacks,Mobile application attacks,183377,2355938192,20748489,7,read from report text by script,
