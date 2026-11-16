@@ -1,0 +1,124 @@
+---
+title: "eda_phishing"
+format:
+  html:
+    embed-resources: true
+---
+
+```{r}
+#| label: setup
+#| message: false
+library(tidyverse)
+library(yardstick)
+phish <- readRDS("../data/processed/phishing.rds")
+```
+
+## 1. Shape, types and missing values
+
+```{r}
+dim(phish)
+glimpse(phish)
+sum(is.na(phish))
+```
+
+## 2. Class balance
+
+```{r}
+phish |> count(is_phishing) |> mutate(pct = round(100 * n / sum(n), 1))
+
+ggplot(phish, aes(is_phishing, fill = is_phishing)) +
+  geom_bar(show.legend = FALSE) +
+  labs(title = "Phishing URLs are longer, use more special characters and are less often HTTPS", x = NULL, y = NULL)
+```
+
+## 3. Feature comparison
+
+```{r}
+phish |>
+  select(is_phishing, URLLength, NoOfSubDomain, IsHTTPS,
+         NoOfOtherSpecialCharsInURL) |>
+  pivot_longer(-is_phishing) |>
+  ggplot(aes(is_phishing, value)) +
+  geom_boxplot() +
+  facet_wrap(~ name, scales = "free_y") +
+  labs(title = "57% of the 235,795 URLs are legitimate and 43% are phishing", x = NULL, y = "Number of URLs")
+```
+
+## 4. Giveaway features
+
+```{r}
+num_cols <- phish |> select(where(is.numeric), -label) |> names()
+
+single_auc <- map_dfr(num_cols, \(col) {
+  a <- roc_auc_vec(phish$is_phishing, -phish[[col]])
+  tibble(feature = col, auc = max(a, 1 - a))
+}) |> arrange(desc(auc))
+
+head(single_auc, 15)
+```
+## 5. Subdomain counting: naive vs Kenya-aware
+
+```{r}
+phish_url <- readRDS("../data/processed/phishing_url_features.rds")
+
+phish_url |>
+  group_by(is_phishing) |>
+  summarise(mean_naive = round(mean(n_subdomains_naive), 3),
+            mean_fixed = round(mean(n_subdomains_fixed), 3),
+            n_different = sum(n_subdomains_naive != n_subdomains_fixed))
+
+phish |>
+  filter(str_detect(str_to_lower(Domain), "\\.ke$")) |>
+  count(is_phishing)
+```
+## 6. Kenyan URLs vs the dataset
+
+```{r}
+#| message: false
+source("../R/url_features.R")
+phish_url <- readRDS("../data/processed/phishing_url_features.rds")
+ke <- read_csv("../data/raw/kenya_urls.csv", show_col_types = FALSE)
+ke_feat <- bind_cols(ke, url_features(ke$url))
+
+compare <- bind_rows(
+  phish_url |> mutate(group = if_else(is_phishing == "phishing",
+                                      "Global phishing", "Global legitimate")),
+  ke_feat   |> mutate(group = "Kenyan legitimate")
+)
+
+compare |>
+  group_by(group) |>
+  summarise(n = n(),
+            median_url_length = median(url_length),
+            pct_with_path = round(100 * mean(path_length > 1), 1),
+            pct_https = round(100 * mean(is_https), 1))
+```
+
+```{r}
+compare |>
+  group_by(group) |>
+  summarise(pct_with_path = 100 * mean(path_length > 1)) |>
+  ggplot(aes(reorder(group, pct_with_path), pct_with_path)) +
+  geom_col() +
+  geom_text(aes(label = paste0(round(pct_with_path, 1), "%")), vjust = -0.3) +
+  labs(title = "58% of Kenyan legitimate URLs have a path, against 0% in the dataset",
+       x = NULL, y = "URLs with a path (%)")
+```
+## 7. Findings
+
+1. The dataset has 235,795 URLs and 57 columns with no missing values; 100,945 (42.8%) are phishing and 134,850 (57.2%) are legitimate.
+2. All 134,850 legitimate URLs use https, start with www and have no path, so the legitimate class is made only of bare homepages.
+3. Among the 100,945 phishing URLs, 48.7% use https, 41.4% start with www and 28.4% have a path.
+4. Phishing URLs show extreme values for length (up to about 6,000 characters) and special characters (up to about 500), while legitimate URLs stay short.
+5. URLSimilarityIndex separates the classes almost perfectly on its own (AUC 0.996) and is a suspected leak.
+6. LineOfCode (0.990), NoOfExternalRef (0.988) and NoOfImage (0.980) also pass the 0.98 threshold.
+7. The top seven features by AUC are all page-content features that need the page to be visited, so they cannot be measured from URL text alone.
+8. The strongest URL-text features are NoOfOtherSpecialCharsInURL (AUC 0.824) and SpacialCharRatioInURL (0.808), well below the page-content features.
+9. Because legitimate URLs are only bare homepages, a model may learn URL structure instead of phishing behaviour, which Part 4 tests on real Kenyan login and deep-link pages.
+10. The naive and Kenya-aware subdomain counts differ for only 79 of 235,795 URLs (0.03%), so the average count is the same either way (1.17 for phishing, 1.16 for legitimate).
+11. Only 81 URLs in the dataset end in .ke (49 legitimate and 32 phishing), so a model trained on it has almost never seen Kenyan domains.
+12. On safaricom.co.ke the naive count is 2 and the fixed count is 1, the same as kcbgroup.com, so the naive count could make a Kenyan site look more suspicious, which Part 4 will test.
+13. 58.3% of the 348 Kenyan legitimate URLs contain a path, compared with 0% of the 134,850 legitimate URLs in PhiUSIIL and 28.4% of its phishing URLs.
+14. The median Kenyan URL is 35 characters, close to phishing (34) and longer than global legitimate URLs (27).
+15. The gap is driven by page type: 95.2% of Kenyan deep pages and 75% of login or service pages have a path, against 4.1% of homepages.
+16. Kenyan homepages resemble the dataset's legitimate URLs (median 25 characters vs 27), so a model trained on PhiUSIIL has only seen the homepage shape of legitimate sites.

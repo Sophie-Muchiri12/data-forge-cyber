@@ -1,0 +1,193 @@
+---
+title: "Kenya Cyber Threat Landscape: Data Forge"
+format:
+  dashboard:
+    embed-resources: true
+    nav-buttons:
+      - icon: github
+        href: https://github.com/Sophie-Muchiri12/data-forge-cyber
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(tidyverse)
+library(plotly)
+
+col_main <- "#2c7fb8"
+col_grey <- "#9aa5b1"
+col_warn <- "#d95f02"
+
+# Small tables built by scripts/10_dashboard_data.R, so this page loads fast
+p2 <- readRDS("../data/processed/p2_rate_by_severity.rds")
+p4 <- readRDS("../data/processed/p4_path_share.rds")
+ke <- read_csv("../data/raw/kenya_urls.csv", show_col_types = FALSE)
+
+crit <- p2$by_severity |> filter(severity == "CRITICAL")
+med  <- p2$by_severity |> filter(severity == "MEDIUM")
+```
+
+# Kenya trends
+
+## Row
+
+```{r}
+#| content: valuebox
+#| title: "Status"
+list(icon = "hourglass-split", color = "light",
+     value = "Coming soon (Consolata)")
+```
+
+## Row
+
+::: {.card title="Part 1: How are threat categories in Kenya changing over time?"}
+This page is waiting for the Kenya trends analysis (quarterly detected threat
+events by category, from the Communications Authority and KE-CIRT reports).
+
+It will show one panel per category, the share each category takes, and the
+growth per quarter with its uncertainty range.
+
+Kenyan figures count **detected threat events**, mostly blocked scans and
+attempts, not successful attacks.
+:::
+
+# What gets exploited
+
+## Row {height=25%}
+
+```{r}
+#| content: valuebox
+#| title: "CVEs in CISA KEV (exploited)"
+list(icon = "shield-exclamation", color = "primary",
+     value = paste0(round(p2$overall$rate_pct, 2), "%"))
+```
+
+```{r}
+#| content: valuebox
+#| title: "Critical vs Medium: how many times more often exploited"
+list(icon = "graph-up-arrow", color = "warning",
+     value = paste0(round(crit$rate_pct / med$rate_pct), " times"))
+```
+
+```{r}
+#| content: valuebox
+#| title: "Scored CVEs analysed (published 2016 onwards)"
+list(icon = "database", color = "light",
+     value = scales::comma(p2$overall$n))
+```
+
+## Row {height=75%}
+
+```{r}
+#| title: "Critical CVEs are exploited about 10 times as often as Medium ones"
+d <- p2$by_severity
+plot_ly(d, x = ~severity, y = ~rate_pct, type = "bar",
+        marker = list(color = col_main),
+        text = ~paste0(round(rate_pct, 2), "%  (n = ", scales::comma(n), ")"),
+        textposition = "outside", cliponaxis = FALSE,
+        hovertemplate = paste0("%{x}<br>Exploited: %{y:.2f}%<br>",
+                               "CVEs: ", scales::comma(d$n),
+                               "<br>In KEV: ", d$n_exploited, "<extra></extra>")) |>
+  layout(xaxis = list(title = "CVSS severity"),
+         yaxis = list(title = "Exploited (%)", rangemode = "tozero"),
+         margin = list(t = 30))
+```
+
+::: {.card title="How to read this"}
+Each bar is the share of CVEs in that severity band that CISA has confirmed as
+exploited in the wild (the KEV list).
+
+Exploitation is rare: only `r round(p2$overall$rate_pct, 2)`% of scored CVEs are
+in KEV. Severity helps, but it is not a strong predictor on its own.
+
+KEV mainly lists products used by US government agencies, so this shows
+**known** exploitation, not all exploitation.
+:::
+
+# What to fix first
+
+## Row
+
+```{r}
+#| content: valuebox
+#| title: "Status"
+list(icon = "hourglass-split", color = "light",
+     value = "Coming soon (Sophie)")
+```
+
+## Row
+
+::: {.card title="Part 3: Does our model rank dangerous vulnerabilities better than CVSS and EPSS?"}
+This page is waiting for the prioritisation model.
+
+It will show one chart: if you patch the top X% of vulnerabilities, what share
+of the ones that were really exploited do you catch? Our model will be compared
+with the CVSS score and with EPSS as it stood on 1 January 2025.
+:::
+
+# Phishing
+
+## Row {height=25%}
+
+```{r}
+#| content: valuebox
+#| title: "Legitimate Kenyan URLs in our own list"
+list(icon = "globe-africa", color = "primary",
+     value = nrow(ke))
+```
+
+```{r}
+#| content: valuebox
+#| title: "Kenyan URLs with a path (not a bare homepage)"
+list(icon = "link-45deg", color = "warning",
+     value = paste0(round(p4$share_pct[p4$group == "Our Kenyan list"]), "%"))
+```
+
+```{r}
+#| content: valuebox
+#| title: "Dataset's legitimate URLs with a path"
+list(icon = "exclamation-triangle", color = "light",
+     value = paste0(round(p4$share_pct[p4$group == "Dataset: legitimate"]), "%"))
+```
+
+## Row {height=75%}
+
+```{r}
+#| title: "Most Kenyan URLs have a path, but the dataset's legitimate URLs never do"
+pd <- p4 |> mutate(group = fct_reorder(group, share_pct))
+plot_ly(pd, x = ~share_pct, y = ~group, type = "bar", orientation = "h",
+        color = ~group,
+        colors = c("Our Kenyan list" = col_main, "Dataset: phishing" = col_warn,
+                   "Dataset: legitimate" = col_grey),
+        text = ~paste0(round(share_pct, 1), "%  (n = ", scales::comma(n), ")"),
+        textposition = "outside", cliponaxis = FALSE, showlegend = FALSE,
+        hovertemplate = "%{y}<br>%{x:.1f}% have a path<extra></extra>") |>
+  layout(xaxis = list(title = "URLs with a path after the domain (%)", range = c(0, 110)),
+         yaxis = list(title = ""),
+         margin = list(l = 10, r = 30))
+```
+
+```{r}
+#| title: "Our Kenyan list mixes homepages, login pages and deeper pages"
+tp <- ke |>
+  count(page_type) |>
+  mutate(page_type = factor(page_type,
+                            levels = c("homepage", "login_service", "deep"),
+                            labels = c("Homepage", "Login / service", "Deeper page")),
+         share = round(100 * n / sum(n)))
+plot_ly(tp, x = ~page_type, y = ~n, type = "bar", marker = list(color = col_main),
+        text = ~paste0(n, "  (", share, "%)"), textposition = "outside",
+        cliponaxis = FALSE,
+        hovertemplate = "%{x}<br>%{y} URLs<extra></extra>") |>
+  layout(xaxis = list(title = "Page type"),
+         yaxis = list(title = "Number of URLs", rangemode = "tozero"),
+         margin = list(t = 30))
+```
+
+::: {.card title="Why the Kenyan test matters"}
+Every legitimate URL in the phishing dataset is a bare homepage. A model trained
+on it may learn "has a path means phishing", which would wrongly flag real
+Kenyan login and deeper pages.
+
+The Kenyan false-alarm rate is still to come from the phishing model (Part 4).
+:::

@@ -52,6 +52,7 @@ n_distinct(kev$cveID)         # unique vulnerabilities
 library(tidyverse)
 library(pdftools)
 
+
 url  <- "https://www.ca.go.ke/sites/default/files/2026-07/Cyber%20Security%20Report%20Q4%202025-2026_1.pdf"
 dest <- "data/raw/ca_reports/CA_cyber_2026-04.pdf"
 
@@ -60,3 +61,14 @@ download.file(url, dest, mode = "wb")   # "wb" keeps the PDF from getting corrup
 # Check it worked
 pdf_info(dest)$pages          # should print a page count, not an error
 pdf_text(dest)[1] |> cat()    # first page should say April–June 2026
+
+vulns <- readRDS("data/processed/vulns.rds")
+View(vulns)
+
+
+library(tidyverse)
+vulns <- readRDS("data/processed/vulns.rds")
+
+exploited <- filter(vulns, exploited)
+nrow(exploited)   # 1554
+View(exploited)
