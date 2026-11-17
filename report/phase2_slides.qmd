@@ -1,5 +1,11 @@
 ---
 title: "The Changing Cyber Threat Landscape in Kenya"
+<<<<<<< HEAD
+subtitle: "Phase 2: Data collection, cleaning and exploratory analysis"
+author: "Data Forge"
+date: today
+date-format: "D MMMM YYYY"
+=======
 subtitle: "Phase 2: Data collection, cleaning and exploratory analysis<br><span style=\"font-size:0.75em\">Data Forge · CMT 429 Introduction to Data Science · CUEA</span>"
 author:
   - "Sophie Muthoni Muchiri (1060697)"
@@ -10,6 +16,7 @@ author:
   - "Bradley Mudhune (1060674)"
 date: 2026-10-30
 date-format: "Do MMMM YYYY"
+>>>>>>> dev
 format:
   revealjs:
     slide-number: true
@@ -20,7 +27,10 @@ format:
     fig-height: 5.4
     fig-dpi: 150
     transition: none
+<<<<<<< HEAD
+=======
     link-external-newwindow: true
+>>>>>>> dev
     include-in-header:
       text: |
         <style>
@@ -31,12 +41,15 @@ format:
         .reveal .big-number { font-size: 2.4em; font-weight: 700; color: #d95f02; line-height: 1.1; }
         .reveal .small { font-size: 0.7em; color: #555; }
         .reveal .box { border-left: 6px solid #d95f02; padding: 0.3em 0.8em; background: #fbf3ec; }
+<<<<<<< HEAD
+=======
         #title-slide .title { font-size: 1.6em; }
         #title-slide .subtitle { font-size: 0.9em; }
         #title-slide .quarto-title-authors { display: grid; grid-template-columns: repeat(3, auto); justify-content: center; column-gap: 2em; }
         #title-slide .quarto-title-author { padding: 0; }
         #title-slide .quarto-title-author-name { font-size: 0.7em; }
         #title-slide .date { font-size: 0.65em; }
+>>>>>>> dev
         </style>
 execute:
   echo: false

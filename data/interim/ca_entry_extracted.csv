@@ -1,0 +1,76 @@
+fy,quarter,period_start,category_raw,events,reported_total,advisories,source_page,note
+2021/22,4,2022-04-01,,,92838258,,3,annual report; quarterly total from the Director General's statement; categories only in an unlabelled chart; quarterly advisories not given
+2022/23,1,2022-07-01,,,278030354,5313512,12,categories only in an unlabelled chart
+2022/23,2,2022-10-01,,,249991852,3554356,10,"categories only in an unlabelled chart; the next report gives advisories as 3,553,999"
+2022/23,3,2023-01-01,,,187757659,3584966,3,categories only in an unlabelled chart
+2022/23,4,2023-04-01,,,139775123,10742859,10,categories only in an unlabelled chart
+2023/24,1,2023-07-01,System Attacks,111149684,123899936,5581354,10,categories from each category's own section; DDoS not reported as detected this quarter
+2023/24,1,2023-07-01,Malware Attacks,7514964,123899936,5581354,6,categories from each category's own section; DDoS not reported as detected this quarter
+2023/24,1,2023-07-01,Brute Force Attacks,5101538,123899936,5581354,8,categories from each category's own section; DDoS not reported as detected this quarter
+2023/24,1,2023-07-01,Web Application Attacks,106603,123899936,5581354,7,categories from each category's own section; DDoS not reported as detected this quarter
+2023/24,1,2023-07-01,Mobile Application Attacks,27147,123899936,5581354,9,categories from each category's own section; DDoS not reported as detected this quarter
+2023/24,2,2023-10-01,System Attacks,1269267620,1292285408,8061267,5,DDoS not reported as a detected category this quarter (only in advisories)
+2023/24,2,2023-10-01,Malware Attacks,13221698,1292285408,8061267,5,DDoS not reported as a detected category this quarter (only in advisories)
+2023/24,2,2023-10-01,Brute Force Attacks,9670849,1292285408,8061267,5,DDoS not reported as a detected category this quarter (only in advisories)
+2023/24,2,2023-10-01,Web Application Attacks,72536,1292285408,8061267,5,DDoS not reported as a detected category this quarter (only in advisories)
+2023/24,2,2023-10-01,Mobile Application Attacks,52705,1292285408,8061267,5,DDoS not reported as a detected category this quarter (only in advisories)
+2023/24,3,2024-01-01,System Attacks,871223680,971440345,8524407,5,
+2023/24,3,2024-01-01,Distributed Denial of Service Attacks,38646836,971440345,8524407,5,
+2023/24,3,2024-01-01,Malware Attacks,33187524,971440345,8524407,5,
+2023/24,3,2024-01-01,Brute Force Attacks,28011638,971440345,8524407,5,
+2023/24,3,2024-01-01,Web Application Attacks,199435,971440345,8524407,5,
+2023/24,3,2024-01-01,Mobile Application Attacks,171232,971440345,8524407,5,
+2023/24,4,2024-04-01,System Attacks,1065325993,1131696878,9347542,5,
+2023/24,4,2024-04-01,Malware Attacks,31936666,1131696878,9347542,5,
+2023/24,4,2024-04-01,Brute Force Attacks,26854341,1131696878,9347542,5,
+2023/24,4,2024-04-01,Distributed Denial of Service Attacks,7333681,1131696878,9347542,5,
+2023/24,4,2024-04-01,Web Application Attacks,146903,1131696878,9347542,5,
+2023/24,4,2024-04-01,Mobile Application Attacks,99294,1131696878,9347542,5,
+2024/25,1,2024-07-01,System Attacks,583696090,657843715,9582347,6,
+2024/25,1,2024-07-01,Brute Force Attacks,38135186,657843715,9582347,6,
+2024/25,1,2024-07-01,Malware Attacks,33894268,657843715,9582347,6,
+2024/25,1,2024-07-01,Distributed Denial of Service Attacks,1826259,657843715,9582347,6,
+2024/25,1,2024-07-01,Web Application Attacks,174251,657843715,9582347,6,
+2024/25,1,2024-07-01,Mobile Application Attacks,117661,657843715,9582347,6,
+2024/25,2,2024-10-01,System Attacks,752441233,840921998,11584581,7,"advisories: the report's text and category breakdown give 11,584,581; its headline figure says 11,584,949"
+2024/25,2,2024-10-01,Brute Force Attacks,34784028,840921998,11584581,7,"advisories: the report's text and category breakdown give 11,584,581; its headline figure says 11,584,949"
+2024/25,2,2024-10-01,Malware Attacks,33920406,840921998,11584581,7,"advisories: the report's text and category breakdown give 11,584,581; its headline figure says 11,584,949"
+2024/25,2,2024-10-01,Distributed Denial of Service Attacks,15095217,840921998,11584581,7,"advisories: the report's text and category breakdown give 11,584,581; its headline figure says 11,584,949"
+2024/25,2,2024-10-01,Web Application Attacks,4542939,840921998,11584581,7,"advisories: the report's text and category breakdown give 11,584,581; its headline figure says 11,584,949"
+2024/25,2,2024-10-01,Mobile Application Attacks,138175,840921998,11584581,7,"advisories: the report's text and category breakdown give 11,584,581; its headline figure says 11,584,949"
+2024/25,3,2025-01-01,System Attacks,2470257079,2538283798,13227909,7,"the report's categories add up to 2,537,428,868, which is 854,930 (0.03%) less than its printed total; both kept as printed"
+2024/25,3,2025-01-01,Brute Force Attacks,33794288,2538283798,13227909,7,"the report's categories add up to 2,537,428,868, which is 854,930 (0.03%) less than its printed total; both kept as printed"
+2024/25,3,2025-01-01,Malware Attacks,24549413,2538283798,13227909,7,"the report's categories add up to 2,537,428,868, which is 854,930 (0.03%) less than its printed total; both kept as printed"
+2024/25,3,2025-01-01,Web Application Attacks,5081236,2538283798,13227909,7,"the report's categories add up to 2,537,428,868, which is 854,930 (0.03%) less than its printed total; both kept as printed"
+2024/25,3,2025-01-01,Distributed Denial of Service Attacks,3678789,2538283798,13227909,7,"the report's categories add up to 2,537,428,868, which is 854,930 (0.03%) less than its printed total; both kept as printed"
+2024/25,3,2025-01-01,Mobile Application Attacks,68063,2538283798,13227909,7,"the report's categories add up to 2,537,428,868, which is 854,930 (0.03%) less than its printed total; both kept as printed"
+2024/25,4,2025-04-01,System Attacks,4492325076,4586682277,17269473,7,
+2024/25,4,2025-04-01,Malware Attacks,47397554,4586682277,17269473,7,
+2024/25,4,2025-04-01,Brute Force Attacks,20947973,4586682277,17269473,7,
+2024/25,4,2025-04-01,Distributed Denial of Service Attacks,13080197,4586682277,17269473,7,
+2024/25,4,2025-04-01,Web Application Attacks,12742473,4586682277,17269473,7,
+2024/25,4,2025-04-01,Mobile Application Attacks,189004,4586682277,17269473,7,
+2025/26,1,2025-07-01,System Attacks,776542757,842320667,19951546,7,
+2025/26,1,2025-07-01,Malware Attacks,31676444,842320667,19951546,7,
+2025/26,1,2025-07-01,Brute Force Attacks,18811738,842320667,19951546,7,
+2025/26,1,2025-07-01,Web Application Attacks,10417253,842320667,19951546,7,
+2025/26,1,2025-07-01,Distributed Denial of Service Attacks,4795584,842320667,19951546,7,
+2025/26,1,2025-07-01,Mobile Application Attacks,76891,842320667,19951546,7,
+2025/26,2,2025-10-01,System Attacks,4375339677,4559229985,21815814,7,
+2025/26,2,2025-10-01,Malware Attacks,70907781,4559229985,21815814,7,
+2025/26,2,2025-10-01,Distributed Denial of Service Attacks,58316952,4559229985,21815814,7,
+2025/26,2,2025-10-01,Brute Force Attacks,42785432,4559229985,21815814,7,
+2025/26,2,2025-10-01,Web Application Attacks,11570134,4559229985,21815814,7,
+2025/26,2,2025-10-01,Mobile Application Attacks,310009,4559229985,21815814,7,
+2025/26,3,2026-01-01,System Attacks,3231465502,3367113840,20581754,7,
+2025/26,3,2026-01-01,Malware Attacks,68726238,3367113840,20581754,7,
+2025/26,3,2026-01-01,Brute Force Attacks,46384747,3367113840,20581754,7,
+2025/26,3,2026-01-01,Web Application Attacks,12115001,3367113840,20581754,7,
+2025/26,3,2026-01-01,Distributed Denial of Service Attacks,8202803,3367113840,20581754,7,
+2025/26,3,2026-01-01,Mobile Application Attacks,219549,3367113840,20581754,7,
+2025/26,4,2026-04-01,System Attacks,2254287819,2355938192,20748489,7,
+2025/26,4,2026-04-01,Malware Attacks,58997257,2355938192,20748489,7,
+2025/26,4,2026-04-01,Brute Force Attacks,24243919,2355938192,20748489,7,
+2025/26,4,2026-04-01,Web Application Attacks,17406495,2355938192,20748489,7,
+2025/26,4,2026-04-01,Distributed Denial of Service Attacks,819325,2355938192,20748489,7,
+2025/26,4,2026-04-01,Mobile Application Attacks,183377,2355938192,20748489,7,

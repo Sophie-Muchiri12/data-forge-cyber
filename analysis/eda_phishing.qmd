@@ -28,7 +28,7 @@ phish |> count(is_phishing) |> mutate(pct = round(100 * n / sum(n), 1))
 
 ggplot(phish, aes(is_phishing, fill = is_phishing)) +
   geom_bar(show.legend = FALSE) +
-  labs(title = "Phishing URLs are longer, use more special characters and are less often HTTPS", x = NULL, y = NULL)
+  labs(title = "57% of the 235,795 URLs are legitimate and 43% are phishing", x = NULL, y = "Number of URLs")
 ```
 
 ## 3. Feature comparison
@@ -41,7 +41,9 @@ phish |>
   ggplot(aes(is_phishing, value)) +
   geom_boxplot() +
   facet_wrap(~ name, scales = "free_y") +
-  labs(title = "57% of the 235,795 URLs are legitimate and 43% are phishing", x = NULL, y = "Number of URLs")
+  labs(title = "Phishing URLs are longer, use more special characters and are less often HTTPS",
+       subtitle = "Median URL length 34 vs 26 characters; median special characters 3 vs 1; 49% vs 100% HTTPS",
+       x = NULL, y = "Value")
 ```
 
 ## 4. Giveaway features
