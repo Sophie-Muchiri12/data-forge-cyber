@@ -72,17 +72,41 @@ scorers |>
 ```
 Until 2023, NVD scored over 90% of CVEs itself. From 2024 the share fell sharply: 58% in 2024, 35% in 2025 and 16% in 2026. Reporters filled the gap, scoring 74% of 2026 CVEs, while 9.6% of 2026 CVEs have no score at all. So most recent severity scores come from the company that reported the bug, not from an independent reviewer, which is worth keeping in mind whenever we compare severity across years.
 
+## 4. Exploited CVEs: their scores and their share per year
+```{r}
+vulns |>
+  filter(!is.na(cvss_score)) |>
+  ggplot(aes(x = exploited, y = cvss_score)) +
+  geom_boxplot() +
+  scale_x_discrete(labels = c(`FALSE` = "Not in KEV", `TRUE` = "In KEV (exploited)")) +
+  labs(title = "Exploited CVEs score higher: median 8.8 against 7.2",
+       x = NULL, y = "CVSS score")
+```
+
+```{r}
+vulns |>
+  group_by(pub_year) |>
+  summarise(cves = n(), n_exploited = sum(exploited), pct_exploited = round(100 * mean(exploited), 2))
+```
+
+```{r}
+vulns |>
+  group_by(pub_year) |>
+  summarise(pct_exploited = 100 * mean(exploited)) |>
+  ggplot(aes(x = pub_year, y = pct_exploited)) +
+  geom_col() +
+  scale_x_continuous(breaks = 2016:2026) +
+  labs(title = "In every year, about 1% or fewer of CVEs are known to be exploited",
+       subtitle = "Recent years are lower partly because their CVEs have had less time to be exploited",
+       x = "Year published", y = "% of CVEs in KEV")
+```
+Exploited CVEs have a median CVSS score of 8.8 (middle half 7.7 to 9.8) against 7.2 (5.5 to 8.2) for the rest. The share of CVEs that end up in KEV stays at or below about 1% in every year: from 1.07% for 2021 down to 0.40% for 2024 and 0.23% for 2026. Recent years look lower partly because their CVEs have had less time to be exploited and added. Overall, 1,554 of 315,909 CVEs (0.49%) are in KEV.
+
 ## Findings
 
 1. CVEs published per year rose from 13,365 in 2017 to 47,946 in 2025, and 2026 already has 85,802 by 22 October.
 2. Only 3.6% of CVEs have no CVSS score, but the share is rising: about 0% in 2017-2023, 5.5% in 2025 and 9.6% in 2026.
 3. NVD scored over 90% of CVEs until 2023 but only 16% in 2026; reporting companies now score most new CVEs (74% in 2026).
 4. Missing CWE fell from 12-20% before 2022 to 5-8% since 2023, so weakness types are now recorded more consistently.
-
-
-
-
-
-
-
-
+5. Exploited CVEs have a higher median CVSS score: 8.8 against 7.2 for the rest.
+6. Only 0.49% of all CVEs (1,554 of 315,909) are in KEV, and no publication year goes above about 1% (highest: 1.07% for 2021).

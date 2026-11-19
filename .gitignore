@@ -7,3 +7,4 @@ data/raw/phishing/
 
 .Renviron
 data/interim/nvd_years/
+report/figures/
