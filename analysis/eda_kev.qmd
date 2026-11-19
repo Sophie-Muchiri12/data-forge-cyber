@@ -99,3 +99,11 @@ ttx |>
 ```
 For CVEs published since 2022, the median gap between NVD publication and KEV entry is between 4 and 24 days, usually about a week. Older CVEs show gaps of years only because KEV started in November 2021, so bugs exploited before then were added late. 65 CVEs have negative gaps because NVD published its record after CISA had already listed them. 2026 is a partial year, so its gaps cannot be long yet.
 
+## Findings
+
+1. KEV lists 1,758 exploited CVEs from 291 vendors. Only `cwes` has gaps: 175 entries (10%).
+2. 361 of 1,758 entries (20.5%) are known to have been used in ransomware campaigns.
+3. KEV started with 311 entries in its first two months (Nov-Dec 2021), peaked at 555 in 2022, settled near 190 a year in 2023-24, and is rising again: 274 in 2026 by 26 October, more than all of 2025 (245).
+4. Microsoft has the most entries, 390 of 1,758 (22%), more than Cisco, Apple and Adobe combined (278).
+5. The top 15 vendors make up 1,046 of 1,758 entries (59.5%).
+6. For CVEs published since 2022, the median gap between NVD publication and KEV entry is 7 days (between 4 and 24 days depending on the year), so attackers move within about a week. 65 CVEs have negative gaps because NVD published its record after CISA had listed them.

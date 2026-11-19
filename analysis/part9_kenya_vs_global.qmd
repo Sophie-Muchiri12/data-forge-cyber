@@ -1,0 +1,118 @@
+---
+title: "Kenya vs global: do Kenyan threat trends follow global vulnerability trends?"
+subtitle: "Phase 9 of the playbook, answering research question (c)"
+format:
+  html:
+    embed-resources: true
+    toc: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r setup}
+library(tidyverse)
+library(scales)
+source(here::here("R/theme_dataforge.R"))
+theme_set(theme_dataforge())
+navy <- "#1f3a5f"; accent <- "#d95f02"; grey <- "#9aa3ad"
+fig_dir <- here::here("outputs/figures")
+
+kenya <- read_csv(here::here("data/processed/ca_totals.csv"), show_col_types = FALSE) |>
+  select(period_start, kenya_events = reported_total)
+vulns <- readRDS(here::here("data/processed/vulns.rds"))
+kev   <- read_csv(here::here("data/raw/kev/kev_2026-10-27.csv"), show_col_types = FALSE)
+```
+
+**Research question (c):** How do national threat event trends reported by the Communications Authority of Kenya correlate with global trends in published and known exploited vulnerabilities (NVD and CISA KEV) over the same period?
+
+## 1. One row per quarter
+
+```{r quarterly}
+to_quarter <- function(d) floor_date(as_date(d), "quarter")
+
+quarterly <- kenya |>
+  left_join(vulns |> count(period_start = to_quarter(published), name = "cves_published"), by = "period_start") |>
+  left_join(kev |> count(period_start = to_quarter(dateAdded), name = "kev_added"), by = "period_start") |>
+  mutate(kev_added = replace_na(kev_added, 0L))
+
+quarterly
+```
+
+KEV started in November 2021, so its comparison uses October 2021 onwards (`r sum(quarterly$period_start >= as_date("2021-10-01"))` quarters). The NVD comparison uses all `r nrow(quarterly)` quarters.
+
+## 2. Indexed chart: all three series start at 100
+
+The three series are on very different scales (billions of events, thousands of CVEs, dozens of KEV additions), so each is divided by its own first value and multiplied by 100.
+
+```{r indexed}
+#| fig-width: 10
+#| fig-height: 5
+indexed <- quarterly |>
+  transmute(period_start,
+            `Kenya: detected threat events` = 100 * kenya_events / first(kenya_events),
+            `World: CVEs published (NVD)` = 100 * cves_published / first(cves_published)) |>
+  pivot_longer(-period_start, names_to = "series", values_to = "index")
+
+last_idx <- indexed |> group_by(series) |> slice_max(period_start) |> ungroup()
+k_x <- round(last_idx$index[str_starts(last_idx$series, "Kenya")] / 100)
+n_x <- round(last_idx$index[str_starts(last_idx$series, "World")] / 100, 1)
+
+p9 <- ggplot(indexed, aes(period_start, index, colour = series)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.6) +
+  scale_y_log10(labels = label_number(big.mark = ",")) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  scale_colour_manual(values = c(navy, accent)) +
+  labs(title = paste0("Both rose, but Kenya's detected events grew about ", k_x,
+                      "-fold while new CVEs grew about ", n_x, "-fold"),
+       subtitle = "Index, January-March 2020 = 100 (log scale)",
+       x = "Quarter", y = "Index (Jan-Mar 2020 = 100)", colour = NULL)
+p9
+ggsave(file.path(fig_dir, "p9_kenya_vs_global.png"), p9, width = 10, height = 5, dpi = 300, bg = "white")
+```
+
+## 3. Correlation on levels and on changes
+
+Two series that both rise over time will always look correlated, even if they have nothing to do with each other. So we check twice:
+
+- **Levels:** do high-Kenya quarters coincide with high-CVE quarters? (Spearman rank correlation)
+- **Changes:** when one jumps from one quarter to the next, does the other jump too? (Spearman correlation of the quarter-on-quarter change in the logs). This removes the shared upward trend.
+
+```{r correlations}
+spearman <- function(a, b) {
+  ok <- !is.na(a) & !is.na(b)
+  t <- cor.test(a[ok], b[ok], method = "spearman", exact = FALSE)
+  tibble(rho = unname(t$estimate), p_value = t$p.value, quarters = sum(ok))
+}
+
+q_kev <- quarterly |> filter(period_start >= as_date("2021-10-01"))
+chg <- function(x) log1p(x) - lag(log1p(x))
+
+cors <- bind_rows(
+  spearman(quarterly$kenya_events, quarterly$cves_published) |> mutate(comparison = "Kenya events vs CVEs published", measure = "Levels"),
+  spearman(chg(quarterly$kenya_events), chg(quarterly$cves_published)) |> mutate(comparison = "Kenya events vs CVEs published", measure = "Quarter-on-quarter change"),
+  spearman(q_kev$kenya_events, q_kev$kev_added) |> mutate(comparison = "Kenya events vs KEV additions", measure = "Levels"),
+  spearman(chg(q_kev$kenya_events), chg(q_kev$kev_added)) |> mutate(comparison = "Kenya events vs KEV additions", measure = "Quarter-on-quarter change")
+)
+cors |>
+  transmute(Comparison = comparison, Measure = measure, Quarters = quarters,
+            `Spearman rho` = round(rho, 2), `p-value` = signif(p_value, 2)) |>
+  knitr::kable()
+
+r_lvl <- cors |> filter(comparison == "Kenya events vs CVEs published", measure == "Levels")
+r_chg <- cors |> filter(comparison == "Kenya events vs CVEs published", measure != "Levels")
+r_kev <- cors |> filter(comparison == "Kenya events vs KEV additions", measure == "Levels")
+```
+
+## 4. Findings
+
+1. **Levels move together.** Quarters with more detected threat events in Kenya are also quarters with more new CVEs published worldwide (Spearman ρ = `r round(r_lvl$rho, 2)`, p < 0.001, `r r_lvl$quarters` quarters).
+2. **But changes do not.** Quarter-on-quarter, the two are unrelated (ρ = `r round(r_chg$rho, 2)`, p = `r round(r_chg$p_value, 2)`). The strong level correlation comes from both series rising over time, not from one following the other.
+3. **Kenya's events grew far faster** than global CVE publication: about `r k_x` times against `r n_x` times since January-March 2020.
+4. **Exploitation does not track Kenya's numbers.** The number of CVEs added to KEV each quarter shows no relationship with Kenya's detected events (ρ = `r round(r_kev$rho, 2)`, p = `r round(r_kev$p_value, 2)`).
+
+**Answer to research question (c).** Kenya's detected threat events and global vulnerability publication share a strong upward trend, but they do not move together from quarter to quarter, and Kenya's numbers show no link with known exploitation (KEV). The growth in Kenya's figures is much larger than the growth in global vulnerabilities, which fits the Communications Authority's own explanation that part of it comes from improved detection.
+
+**Caution.** Correlation is not cause: these are national counts of detected events and global counts of published vulnerabilities, with only 26 (or 19) quarters. Nothing here shows that any global vulnerability caused a Kenyan event.
