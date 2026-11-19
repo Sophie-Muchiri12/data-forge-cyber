@@ -1,0 +1,834 @@
+---
+title: "A Data-Driven Analysis of the Changing Cyber Threat Landscape in Kenya"
+subtitle: "Phase 2 submission: data collection, cleaning, transformation and exploratory data analysis"
+author:
+  - "Sophie Muthoni Muchiri (1060697)"
+  - "Consolata Makau (1064147)"
+  - "Nathan Ochieng' Otieno (1061016)"
+  - "Quintone Mark Juma (1061327)"
+  - "Felix Kiptoo Kerich (1060821)"
+  - "Bradley Mudhune (1060674)"
+date: today
+date-format: "D MMMM YYYY"
+abstract: |
+  Group: Data Forge. Course: CMT 429 Introduction to Data Science, Department of Computer Science, The Catholic University of Eastern Africa (CUEA).
+
+  This document reports Phase 2 of our project. It describes the six data sources we use, how each one was collected, how the raw files were cleaned and transformed into analysis tables, and what our exploratory data analysis (EDA) found. Every table, chart and number in this document is computed in R from the files in our GitHub repository (https://github.com/Sophie-Muchiri12/data-forge-cyber) when the document is rendered. Nothing was typed in by hand, so the document can be regenerated and checked at any time.
+format:
+  typst:
+    papersize: a4
+    margin:
+      x: 2.2cm
+      y: 2.2cm
+    fontsize: 10.5pt
+    toc: true
+    toc-depth: 2
+    number-sections: true
+    fig-width: 6.6
+    fig-height: 3.5
+    fig-dpi: 220
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r setup}
+library(tidyverse)
+library(scales)
+
+# Find the project folder (works from report/ or the top folder)
+find_root <- function(dir = getwd()) {
+  for (i in 1:5) {
+    if (length(list.files(dir, "\\.Rproj$")) > 0 || dir.exists(file.path(dir, "data", "processed"))) return(dir)
+    dir <- dirname(dir)
+  }
+  stop("Could not find the project folder. Save this file inside the data-forge-cyber folder (in report/).")
+}
+root <- find_root()
+repo <- function(...) file.path(root, ...)
+
+needed <- c("R/theme_dataforge.R", "R/url_features.R",
+            "data/processed/vulns.rds", "data/processed/phishing.rds",
+            "data/processed/phishing_url_features.rds", "data/raw/kenya_urls.csv",
+            "docs/source_log.csv", "data/raw/epss/epss_scores-2025-01-01.csv.gz",
+            "data/raw/ca_entry_CM.csv", "data/raw/ca_entry_FK.csv",
+            "data/interim/ca_report_manifest.csv")
+missing <- needed[!file.exists(repo(needed))]
+if (length(missing) > 0) stop("These files are missing:\n  ", paste(missing, collapse = "\n  "),
+                              "\nSwitch to the dev branch and Pull, or copy the large files from the Drive.")
+
+source(repo("R/theme_dataforge.R"))
+source(repo("R/url_features.R"))
+
+navy <- "#1f3a5f"; accent <- "#d95f02"; grey <- "#b8bec6"
+theme_set(theme_dataforge() +
+  theme(text = element_text(size = 10),
+        plot.title = element_text(size = 11, face = "bold"),
+        plot.subtitle = element_text(size = 9, colour = "grey30")))
+
+pct <- function(x, d = 1) paste0(format(round(100 * x, d), nsmall = d), "%")
+num <- function(x) comma(x)
+big <- function(x) label_number(scale_cut = cut_short_scale(), accuracy = 0.1)(x)
+# kable with optional relative column widths (numbers are proportions of the page width)
+kbl <- function(x, widths = NULL, ...) {
+  out <- knitr::kable(x, format = "pipe", ...)
+  if (!is.null(widths)) out[2] <- paste0("|", paste0(":", strrep("-", widths * 2), collapse = "|"), "|")
+  out
+}
+quarter_label <- function(d) paste0(c("Jan-Mar", "Apr-Jun", "Jul-Sep", "Oct-Dec")[(month(d) - 1) %/% 3 + 1], " ", year(d))
+
+# ---- Data ----
+vulns     <- readRDS(repo("data/processed/vulns.rds"))
+phish     <- readRDS(repo("data/processed/phishing.rds"))
+phish_url <- readRDS(repo("data/processed/phishing_url_features.rds"))
+ke        <- read_csv(repo("data/raw/kenya_urls.csv"), show_col_types = FALSE)
+src_log   <- read_csv(repo("docs/source_log.csv"), show_col_types = FALSE) |> filter(!is.na(dataset))
+manifest  <- read_csv(repo("data/interim/ca_report_manifest.csv"), show_col_types = FALSE)
+
+kev_file  <- tail(sort(list.files(repo("data/raw/kev"), "^kev_.*\\.csv$", full.names = TRUE)), 1)
+kev       <- read_csv(kev_file, show_col_types = FALSE)
+epss      <- read_csv(repo("data/raw/epss/epss_scores-2025-01-01.csv.gz"), skip = 1, show_col_types = FALSE)
+epss_head <- readLines(gzfile(repo("data/raw/epss/epss_scores-2025-01-01.csv.gz")), n = 1)
+
+ca_pdfs <- list.files(repo("data/raw/ca_reports"), "^CA_cyber_\\d{4}-\\d{2}\\.pdf$")
+ca_cm   <- read_csv(repo("data/raw/ca_entry_CM.csv"), show_col_types = FALSE) |> mutate(quarter = as.character(quarter))
+ca_fk   <- read_csv(repo("data/raw/ca_entry_FK.csv"), show_col_types = FALSE) |>
+  mutate(quarter = str_remove(as.character(quarter), "^Q"))
+
+commit <- tryCatch(system2("git", c("-C", shQuote(root), "rev-parse", "--short", "HEAD"), stdout = TRUE),
+                   error = function(e) "unknown", warning = function(w) "unknown")
+branch <- tryCatch(system2("git", c("-C", shQuote(root), "rev-parse", "--abbrev-ref", "HEAD"), stdout = TRUE),
+                   error = function(e) "unknown", warning = function(w) "unknown")
+```
+
+# Introduction
+
+Kenya's national cyber security team detects billions of cyber threat events every quarter, and tens of thousands of new software vulnerabilities are published worldwide every year. No organisation can respond to all of them at once. Our project uses public data to answer four questions:
+
+1. **Kenya trends:** how have detected cyber threat categories in Kenya changed from quarter to quarter and year to year?
+2. **What gets exploited:** which severity scores, technical characteristics and products are associated with vulnerabilities that attackers actually exploit?
+3. **What to fix first:** can a model rank vulnerabilities by risk better than the CVSS severity score and the EPSS exploit prediction score?
+4. **Phishing:** which URL features separate phishing from legitimate URLs, and does a globally trained detector wrongly flag legitimate Kenyan websites?
+
+Phase 2 covers the groundwork for all four questions: collecting the data as set out in our Phase 1 methodology, cleaning and transforming it, and exploring it with visualisations in R. The modelling for questions 3 and 4 follows in later phases.
+
+**How this document was produced.** This PDF is a Quarto document. When it is rendered, R reads the raw and processed files in our repository and computes every table, chart and number shown here. This edition was rendered from branch `` `r branch` ``, commit `` `r commit` ``. The data tables printed in this document are direct extracts ("snapshots") of our files, not screenshots, so they always match the data.
+
+# Data sources
+
+We use six data sources. Five are published by recognised public bodies; the sixth is a list of Kenyan websites we built ourselves. @tbl-sources summarises them and the subsections below explain each one in detail: who publishes it, what it contains, why we need it, how we accessed it, its terms of use and its known limitations.
+
+```{r}
+#| label: tbl-sources
+#| tbl-cap: "Summary of the six data sources."
+ca_months <- ymd(paste0(str_extract(ca_pdfs, "\\d{4}-\\d{2}"), "-01"))
+tibble(
+  Source = c("KE-CIRT/CC quarterly reports", "NVD (National Vulnerability Database)",
+             "CISA KEV catalog", "FIRST EPSS scores", "PhiUSIIL phishing URL dataset", "Kenyan URL list"),
+  Publisher = c("Communications Authority of Kenya", "NIST (USA)", "CISA (USA)", "FIRST",
+                "Prasad and Chandra, UCI repository", "Data Forge (this project)"),
+  `One row is` = c("A threat category in a quarter", "A vulnerability (CVE)", "An exploited CVE",
+                   "A CVE's score on one day", "A labelled URL", "A Kenyan URL"),
+  `Size in our data` = c(paste(length(ca_pdfs), "PDF reports"), paste(num(nrow(vulns)), "CVEs"),
+                         paste(num(nrow(kev)), "CVEs"), paste(num(nrow(epss)), "CVEs"),
+                         paste(num(nrow(phish)), "URLs"), paste(num(nrow(ke)), "URLs")),
+  Coverage = c(paste(quarter_label(min(ca_months)), "to", quarter_label(max(ca_months))),
+               paste0(min(vulns$pub_year), " to ", max(vulns$pub_year)),
+               paste0(year(min(kev$dateAdded)), " to ", year(max(kev$dateAdded))),
+               "Scores as of 1 Jan 2025", "Global, published 2024", "Collected Oct 2026"),
+  Format = c("PDF", "JSON", "CSV", "CSV (gzip)", "CSV", "CSV")
+) |> kbl(widths = c(22, 22, 17, 12, 17, 10))
+```
+
+## KE-CIRT/CC quarterly cyber security reports (Kenya)
+
+**Publisher.** The National Kenya Computer Incident Response Team Coordination Centre (KE-CIRT/CC), which operates under the Communications Authority of Kenya (CA).
+
+**What it contains.** Each quarterly report gives the number of cyber threat events detected in Kenya during the quarter, broken down by category (for example malware, DDoS/botnet, web application attacks and system vulnerabilities), together with the total and the number of advisories KE-CIRT/CC issued. Reports follow Kenya's financial year, which runs from July to June, so "Quarter 1" means July to September.
+
+**Why we need it.** It is the only official, regularly published measure of the cyber threats seen in Kenya, and it is the basis for research question 1.
+
+**How we accessed it.** The reports are published as PDFs at <https://ke-cirt.go.ke/quarterly-reports/>. The figures sit in tables inside the PDFs, so there is no machine-readable download; we type them into a spreadsheet using the double-entry method described in @sec-ca-cleaning.
+
+**Terms of use.** Public government reports. We cite KE-CIRT/CC and the CA as the source.
+
+**Limitations.** The counts are *detected* events (mostly scans and attempts that were blocked), not confirmed breaches. Category names change between reports, and the way events are counted may change when detection systems change.
+
+## National Vulnerability Database (NVD)
+
+**Publisher.** The US National Institute of Standards and Technology (NIST), <https://nvd.nist.gov/>.
+
+**What it contains.** A record for every publicly disclosed software vulnerability that has a CVE (Common Vulnerabilities and Exposures) identifier. A CVE is an ID number for one known weakness, such as `CVE-2024-3400`. NVD adds a description, a CVSS severity score from 0 to 10, the CVSS components (attack vector, complexity, privileges needed and so on), the weakness type (CWE) and the affected vendor and product.
+
+**Why we need it.** It is the full list of vulnerabilities from which we explain and predict exploitation (questions 2 and 3).
+
+**How we accessed it.** NVD's own API limits download speed, so we used the yearly JSON files published by the fkie-cad project (<https://github.com/fkie-cad/nvd-json-data-feeds>), which mirrors the NVD API as one compressed file per CVE year. We used release v2026.10.23-000015 and downloaded the files for CVE years 2016 to 2026.
+
+**Terms of use.** NVD data is public. As NVD requests, we state: *this project uses data from the NVD API but is not endorsed or certified by the NVD.*
+
+**Limitations.** Our download starts at CVE-2016 IDs, so older vulnerabilities are not included. Since 2024 NVD has scored a shrinking share of new CVEs itself (see @sec-quality).
+
+## CISA Known Exploited Vulnerabilities (KEV) catalog
+
+**Publisher.** The US Cybersecurity and Infrastructure Security Agency (CISA), <https://www.cisa.gov/known-exploited-vulnerabilities-catalog>.
+
+**What it contains.** A list of CVEs that CISA has confirmed are exploited in real attacks. A vulnerability is added only when it has a CVE ID, there is reliable evidence of exploitation in the wild, and a clear fix or mitigation exists. Each entry gives the vendor, product, the date it was added and whether it is known to have been used in ransomware campaigns. The catalog started in November 2021.
+
+**Why we need it.** It is our label for "exploited": a CVE that appears in KEV is treated as exploited (questions 2 and 3).
+
+**How we accessed it.** Downloaded as a CSV file from CISA's website by `scripts/01_download_kev.R`. We use the file from `r basename(kev_file) |> str_extract("\\d{4}-\\d{2}-\\d{2}")` (`r num(nrow(kev))` entries).
+
+**Terms of use.** Public US government data.
+
+**Limitations.** KEV focuses on products used by US federal agencies, so it records *known* exploitation, not all exploitation. A CVE that is not in KEV may still have been exploited.
+
+## FIRST Exploit Prediction Scoring System (EPSS)
+
+**Publisher.** FIRST, the Forum of Incident Response and Security Teams, <https://www.first.org/epss/>.
+
+**What it contains.** For each CVE, a probability from 0 to 1 that it will be exploited in the wild in the 30 days after the score is published, plus a percentile. Scores are recalculated daily and old daily files remain available.
+
+**Why we need it.** EPSS is the prioritisation score the security industry already uses. To show that our own model in question 3 is useful, it must be compared with the best existing option, not only with CVSS. We use the scores published on **1 January 2025** so that any comparison uses only information that existed on that date.
+
+**How we accessed it.** Downloaded by `scripts/06_download_epss.R` from FIRST's daily archive. The first line of the file is a comment, `r epss_head`, which records the model version and score date, so the file is read with `skip = 1`.
+
+**Terms of use.** Freely available; we credit FIRST as the source.
+
+**Limitations.** EPSS predicts exploitation activity, not damage, and its model is updated over time, so scores from different dates are not directly comparable.
+
+## PhiUSIIL phishing URL dataset
+
+**Publisher.** Arvind Prasad and Shalini Chandra, published on the UCI Machine Learning Repository, <https://archive.ics.uci.edu/dataset/967/phiusiil+phishing+url+dataset>, with the paper in *Computers & Security* (2024, article 103545).
+
+**What it contains.** `r num(nrow(phish))` URLs, of which `r num(sum(phish$is_phishing == "legitimate"))` are legitimate and `r num(sum(phish$is_phishing == "phishing"))` are phishing, with `r ncol(phish) - 2` features describing each URL and its web page. In the original file, label 1 means legitimate and 0 means phishing.
+
+**Why we need it.** It provides the labelled examples needed to study which URL features separate phishing from legitimate sites (question 4).
+
+**How we accessed it.** Downloaded from UCI as a single CSV file.
+
+**Terms of use.** Creative Commons Attribution 4.0 (CC BY 4.0); we cite the authors.
+
+**Limitations.** The data is global, with very few Kenyan sites, and its legitimate URLs are all bare homepages (see @sec-eda-phishing).
+
+## Kenyan URL list (collected by the team)
+
+**Publisher.** Data Forge, this project.
+
+**What it contains.** `r num(nrow(ke))` URLs of real, legitimate Kenyan websites from `r n_distinct(ke$organisation)` organisations in `r n_distinct(ke$sector)` sectors, each labelled with its page type (homepage, login or service page, or deeper content page).
+
+**Why we need it.** To test whether a phishing detector trained on global data wrongly flags legitimate Kenyan websites (question 4). No public dataset of Kenyan URLs exists.
+
+**How we accessed it.** Collected by `scripts/collect_kenya_urls.R` from each organisation's own website, in batches by sector, then checked by hand. A small number of telco and bank pages that block automated access were taken from search results restricted to the organisation's own domain (recorded in `docs/decisions.md`).
+
+**Terms of use.** Only public web addresses were recorded; no page content and no personal data were collected. No phishing pages were visited at any point.
+
+**Limitations.** The list contains legitimate pages only, and it reflects the sites as they were in October 2026.
+
+# Data collection
+
+## Approach
+
+Our Phase 1 methodology set three rules for collection, and we followed all three:
+
+1. **Every download is done by a script** in the `scripts/` folder, so it can be repeated exactly.
+2. **Every download is logged** in `docs/source_log.csv`: the file, its link, the date, who downloaded it, the period it covers and its terms of use.
+3. **Raw files are never edited.** They are saved in `data/raw/` exactly as downloaded, and all changes happen in code.
+
+```{r}
+#| label: tbl-scripts
+#| tbl-cap: "Collection scripts and where their output is stored."
+tribble(
+  ~Dataset, ~`Collected by`, ~`Output`,
+  "KE-CIRT/CC reports", "scripts/download_ca_reports.R, then scripts/00_ca_manifest.R", "data/raw/ca_reports/, data/interim/ca_report_manifest.csv",
+  "KE-CIRT/CC figures", "Typed in by hand, twice (double entry)", "data/raw/ca_entry_CM.csv, data/raw/ca_entry_FK.csv",
+  "KEV", "scripts/01_download_kev.R", "data/raw/kev/",
+  "NVD", "scripts/02_download_nvd.R", "data/raw/nvd/ (kept out of Git: too large)",
+  "EPSS", "scripts/06_download_epss.R", "data/raw/epss/",
+  "PhiUSIIL", "Downloaded from UCI", "data/raw/phishing/ (kept out of Git: too large)",
+  "Kenyan URLs", "scripts/collect_kenya_urls.R, checked by hand", "data/raw/kenya_urls.csv"
+) |> kbl(widths = c(16, 40, 44))
+```
+
+@tbl-log summarises the source log by dataset, and @tbl-log-rows shows a snapshot of individual entries.
+
+```{r}
+#| label: tbl-log
+#| tbl-cap: "Source log summary (docs/source_log.csv)."
+src_log |>
+  group_by(Dataset = dataset) |>
+  summarise(`Files logged` = n(), `Downloaded by` = paste(unique(downloaded_by), collapse = ", "),
+            `Download dates` = paste(unique(range(downloaded_on)), collapse = " to ")) |>
+  kbl()
+```
+
+```{r}
+#| label: tbl-log-rows
+#| tbl-cap: "Snapshot of the source log: one example row per dataset."
+src_log |>
+  group_by(dataset) |> slice_tail(n = 1) |> ungroup() |>
+  transmute(Dataset = dataset, File = file_name, Date = downloaded_on, By = downloaded_by,
+            `Terms of use` = str_trunc(terms_of_use, 45)) |>
+  kbl(widths = c(13, 26, 12, 11, 38))
+```
+
+## Kenyan reports
+
+Collecting the KE-CIRT/CC reports took the most work:
+
+- The list page at ke-cirt.go.ke links to each report, but several older files were no longer available on the live site. We retrieved archived copies from the Internet Archive's Wayback Machine and recorded the archive links in the source log.
+- The figures for July to December 2021 are not in the cyber security reports; they appear in the CA's *Sector Statistics* reports for those quarters, so those files were used instead.
+- One download (`CA_cyber_2024-10.pdf`) arrived truncated and could not be opened. It was downloaded again and checked.
+- Every file was renamed to `CA_cyber_YYYY-MM.pdf`, where the date is the first month of the quarter it covers. This avoids confusion between Kenya's financial-year quarters and calendar quarters.
+
+`scripts/00_ca_manifest.R` then opens every PDF, checks it can be read and records its financial year, quarter and number of pages. @tbl-manifest shows the result: all `r nrow(manifest)` reports can be read and contain extractable text.
+
+```{r}
+#| label: tbl-manifest
+#| tbl-cap: "KE-CIRT/CC report manifest (data/interim/ca_report_manifest.csv)."
+manifest |>
+  transmute(File = file, `Financial year` = fy, Quarter = quarter,
+            `Covers` = quarter_label(period_start), Pages = pages, `Readable text` = has_text) |>
+  kbl()
+```
+
+## Global vulnerability data
+
+- **NVD:** `scripts/02_download_nvd.R` downloads the eleven yearly files (CVE-2016 to CVE-2026) from the fkie-cad release and logs each one. The files are about 300 MB in total, so they are kept out of Git and shared through the team Drive.
+- **KEV:** `scripts/01_download_kev.R` saves the CSV with the download date in the file name and writes its own source-log row.
+- **EPSS:** `scripts/06_download_epss.R` downloads the 1 January 2025 file (and the current file for reference), trying FIRST's two download hosts in turn.
+
+@tbl-kev-raw and @tbl-epss-raw show snapshots of the raw KEV and EPSS files.
+
+```{r}
+#| label: tbl-kev-raw
+#| tbl-cap: "Snapshot of the raw KEV file: the five most recent entries (selected columns)."
+kev |>
+  arrange(desc(dateAdded)) |> slice_head(n = 5) |>
+  transmute(cveID, vendorProject, product = str_trunc(product, 25), dateAdded,
+            ransomware = knownRansomwareCampaignUse) |>
+  kbl(widths = c(19, 22, 31, 14, 14))
+```
+
+```{r}
+#| label: tbl-epss-raw
+#| tbl-cap: "Snapshot of the raw EPSS file (scores as of 1 January 2025): the five highest scores."
+epss |> arrange(desc(epss)) |> slice_head(n = 5) |> kbl(digits = 4)
+```
+
+## Phishing data and Kenyan URLs
+
+PhiUSIIL was downloaded once from UCI. The Kenyan URL list was built sector by sector; @tbl-ke-mix shows its make-up and @tbl-ke-raw a snapshot. Every URL was checked for duplicates and for https: there are `r sum(duplicated(ke$url))` duplicates and `r pct(mean(str_detect(ke$url, "^https://")), 0)` of URLs use https.
+
+```{r}
+#| label: tbl-ke-mix
+#| tbl-cap: "Kenyan URL list by sector and page type."
+ke |>
+  count(Sector = sector, page_type) |>
+  pivot_wider(names_from = page_type, values_from = n, values_fill = 0) |>
+  mutate(Total = rowSums(across(where(is.numeric)))) |>
+  arrange(desc(Total)) |>
+  kbl()
+```
+
+```{r}
+#| label: tbl-ke-raw
+#| tbl-cap: "Snapshot of data/raw/kenya_urls.csv: one example from each sector."
+ke |> group_by(sector) |> slice_head(n = 1) |> ungroup() |>
+  transmute(url = str_trunc(url, 48), organisation = str_trunc(organisation, 28), sector, page_type) |>
+  kbl()
+```
+
+# Data cleaning and transformation
+
+## Pipeline
+
+All cleaning is done by numbered scripts that read from `data/raw/` and write to `data/interim/` or `data/processed/`. If anything goes wrong, the processed files can be deleted and rebuilt from the raw files.
+
+```{r}
+#| label: tbl-pipeline
+#| tbl-cap: "Cleaning and transformation steps."
+tribble(
+  ~Step, ~`Reads`, ~`What it does`, ~`Writes`,
+  "03_build_nvd.R + R/parse_nvd.R", "data/raw/nvd/*.json.xz", "Flattens nested JSON to one row per CVE; drops rejected CVEs", "data/interim/nvd_cves.rds",
+  "04_build_vulns.R", "nvd_cves.rds, KEV, EPSS", "Joins the three sources by CVE ID; adds derived columns", "data/processed/vulns.rds",
+  "05_build_phishing.R", "PhiUSIIL CSV", "Turns the 0/1 label into a named factor", "data/processed/phishing.rds",
+  "06_build_url_features.R + R/url_features.R", "phishing.rds", "Computes 19 features from the URL text only", "data/processed/phishing_url_features.rds",
+  "Double entry + checks", "CA report PDFs", "Two independent typed copies, compared by code", "data/raw/ca_entry_CM.csv, ca_entry_FK.csv"
+) |> kbl(widths = c(24, 20, 32, 24))
+```
+
+## Vulnerability data (NVD + KEV + EPSS)
+
+**Flattening NVD.** Each NVD record is deeply nested JSON. `R/parse_nvd.R` extracts one row per CVE with the fields we need. Where a CVE has several CVSS scores, it takes the CVSS v3.1 score (or v3.0 if there is no v3.1) and prefers the score supplied by NVD itself ("Primary"); otherwise it uses the reporter's score. It keeps the first listed weakness type (CWE), ignoring NVD's placeholder values, and takes the vendor and product from the first affected-product (CPE) entry. CVEs with status "Rejected" are removed.
+
+**Avoiding leakage.** We deliberately left out fields that are only added after a CVE is known to be exploited, such as CISA's own fields in the NVD record and the SSVC "Exploitation" rating. Using them would be like reading the answer before the exam. The number of reference links is kept for description only and will never be used as a model input, because references accumulate after exploitation.
+
+**Joining and deriving.** `scripts/04_build_vulns.R` joins NVD with KEV and EPSS by CVE ID and adds:
+
+- `exploited`: TRUE if the CVE appears in KEV;
+- `pub_year`: the year the CVE was published;
+- `cwe_group` and `vendor_group`: the 15 most common weakness types and 20 most common vendors, with the rest grouped as "Other", so rare categories do not swamp a model;
+- `says_rce`, `says_auth_bypass`, `says_sqli`: TRUE if the description mentions remote code execution, authentication bypass or SQL injection;
+- `desc_length`: the length of the description.
+
+```{r}
+kev_unmatched <- anti_join(kev, vulns, by = c("cveID" = "cve_id"))
+unmatched_pre2016 <- sum(as.integer(str_extract(kev_unmatched$cveID, "(?<=CVE-)\\d{4}")) < 2016)
+```
+
+Of the `r num(nrow(kev))` KEV entries, `r num(nrow(kev_unmatched))` have no match in our NVD table, and `r num(unmatched_pre2016)` of these are CVEs from before 2016, which is outside our NVD download. The processed table therefore has `r num(sum(vulns$exploited))` exploited CVEs. @tbl-vulns-snap is a snapshot of the finished table, and Appendix B describes every column.
+
+```{r}
+#| label: tbl-vulns-snap
+#| tbl-cap: "Snapshot of data/processed/vulns.rds: five exploited and five non-exploited CVEs (selected columns)."
+set.seed(429)
+vulns |>
+  filter(!is.na(cvss_score), !is.na(epss_2025_01_01)) |>
+  group_by(exploited) |> slice_sample(n = 5) |> ungroup() |>
+  transmute(cve_id, pub_year, cvss_score, severity, vendor = str_trunc(vendor, 14),
+            exploited, epss = round(epss_2025_01_01, 4), says_rce) |>
+  kbl(widths = c(17, 9, 10, 12, 14, 11, 9, 10))
+```
+
+## Phishing data
+
+`scripts/05_build_phishing.R` reads the PhiUSIIL file and turns the numeric label into a clearly named factor, `is_phishing` ("phishing" or "legitimate"). The dataset has no missing values, so no rows were removed.
+
+Many PhiUSIIL features describe the web page (for example its number of lines of code or images), which can only be measured by visiting the page. Our goal is to judge a link *before* anyone clicks it, so `scripts/06_build_url_features.R` uses our own function, `R/url_features.R`, to compute features from the URL text alone. The same function is applied to the Kenyan URLs, so both are measured in exactly the same way.
+
+One feature needed special care. A naive subdomain count treats `safaricom.co.ke` as having a subdomain, because `.co.ke` contains a dot. Our function recognises Kenyan second-level endings (`co.ke`, `go.ke`, `ac.ke`, `or.ke` and others) and counts correctly, so Kenyan sites are not made to look more suspicious than they are. @tbl-url-snap shows the features computed for a few URLs.
+
+```{r}
+#| label: tbl-url-snap
+#| tbl-cap: "Snapshot of URL-only features for two global and two Kenyan URLs (selected columns)."
+set.seed(7)
+ex_global <- phish |> group_by(is_phishing) |> slice_sample(n = 1) |> ungroup() |>
+  transmute(url = URL, group = paste("Global", is_phishing))
+ex_ke <- ke |> filter(page_type %in% c("homepage", "login_service")) |> group_by(page_type) |> slice_head(n = 1) |> ungroup() |>
+  transmute(url, group = paste("Kenyan", page_type))
+ex <- bind_rows(ex_global, ex_ke)
+bind_cols(ex, url_features(ex$url)) |>
+  transmute(Group = group, URL = str_trunc(url, 34), Length = url_length, `Subdomains (naive)` = n_subdomains_naive,
+            `Subdomains (Kenya-aware)` = n_subdomains_fixed, HTTPS = is_https, `Path length` = path_length, Digits = n_digits) |>
+  kbl(widths = c(15, 27, 8, 11, 12, 8, 10, 9))
+```
+
+## Kenyan report figures: double entry and checks {#sec-ca-cleaning}
+
+```{r}
+totals_check <- ca_cm |>
+  group_by(fy, quarter, period_start) |>
+  summarise(reported = first(reported_total), summed = sum(events), categories = n(), .groups = "drop") |>
+  mutate(match = reported == summed) |>
+  arrange(period_start)
+compare <- inner_join(ca_cm, ca_fk, by = c("fy", "quarter", "category_raw"), suffix = c("_cm", "_fk"))
+n_checked_q <- n_distinct(paste(compare$fy, compare$quarter))
+n_mismatch  <- sum(compare$events_cm != compare$events_fk | compare$reported_total_cm != compare$reported_total_fk, na.rm = TRUE)
+```
+
+Because the Kenyan figures exist only inside PDF tables, they must be typed by hand, and typing introduces errors. We used two safeguards:
+
+1. **Double entry.** Two team members typed the figures independently into separate files (`ca_entry_CM.csv` and `ca_entry_FK.csv`). R joins the two files by financial year, quarter and category and flags every cell that differs. So far `r n_checked_q` quarters have been entered twice and compared, with **`r n_mismatch` differences**.
+2. **Totals check.** Each report prints its own total. For every quarter, the categories we typed must add up exactly to that total. All **`r sum(totals_check$match)` of `r nrow(totals_check)`** quarters entered so far pass (@tbl-ca-check).
+
+```{r}
+#| label: tbl-ca-check
+#| tbl-cap: "Totals check for every quarter entered so far."
+totals_check |>
+  transmute(Quarter = quarter_label(period_start), `Financial year` = fy, `FY quarter` = quarter,
+            Categories = categories, `Sum of categories` = num(summed), `Report total` = num(reported),
+            Match = if_else(match, "Yes", "No")) |>
+  kbl()
+```
+
+@tbl-ca-raw is a snapshot of the entry file. Each row is one category in one quarter, and the PDF page column records where in the report the number was found.
+
+```{r}
+#| label: tbl-ca-raw
+#| tbl-cap: "Snapshot of data/raw/ca_entry_CM.csv: the first quarter and the most recent quarter entered."
+ca_cm |>
+  filter(period_start %in% range(period_start)) |>
+  transmute(`Financial year` = fy, Quarter = quarter, Category = category_raw, Events = num(events),
+            `Report total` = num(reported_total), `PDF page` = if ("source_page" %in% names(ca_cm)) source_page else NA) |>
+  kbl(widths = c(13, 9, 36, 15, 16, 11))
+```
+
+## Data quality issues and how we handled them {#sec-quality}
+
+```{r}
+nvd_score <- vulns |>
+  group_by(pub_year) |>
+  summarise(n = n(), scored = sum(!is.na(cvss_score)),
+            nvd = sum(cvss_scored_by == "nvd@nist.gov", na.rm = TRUE)) |>
+  mutate(pct_nvd_of_scored = nvd / scored, pct_nvd_of_all = nvd / n, pct_missing = 1 - scored / n)
+ly <- max(nvd_score$pub_year); ny <- nvd_score |> filter(pub_year == ly)
+ca_logged <- sum(ca_pdfs %in% src_log$file_name)
+```
+
+@tbl-quality lists the problems we found while cleaning and what we did about each.
+
+```{r}
+#| label: tbl-quality
+#| tbl-cap: "Data quality issues found during cleaning."
+tribble(
+  ~Dataset, ~Issue, ~`How we handled it`,
+  "NVD", paste0(num(sum(is.na(vulns$cvss_score))), " CVEs (", pct(mean(is.na(vulns$cvss_score))), ") have no CVSS v3 score; ", pct(ny$pct_missing), " of ", ly, " CVEs are unscored."),
+    "Kept, with severity marked missing. Analyses that need a score use only scored CVEs.",
+  "NVD", paste0("NVD scored over 90% of CVEs until 2023 but only ", pct(ny$pct_nvd_of_scored, 0), " of scored ", ly, " CVEs (", pct(ny$pct_nvd_of_all, 0), " of all ", ly, " CVEs)."),
+    "Recorded who gave each score (cvss_scored_by). Recent severity scores are treated with caution.",
+  "NVD", "CVE-2016 IDs published in 2016 are incomplete because older IDs were not downloaded.", "2016 is left out of per-year charts.",
+  "KEV", paste0(num(nrow(kev_unmatched)), " KEV entries have no NVD match (", num(unmatched_pre2016), " are pre-2016 CVEs)."),
+    "Recorded in docs/decisions.md. vulns.rds counts the matched exploited CVEs only.",
+  "KEV", "Two KEV downloads (26 and 27 October) exist.", "All scripts use the newest file (27 October).",
+  "EPSS", "First line of the file is a comment, not data.", "Read with skip = 1.",
+  "EPSS", paste0(num(sum(is.na(vulns$epss_2025_01_01))), " CVEs have no 1 Jan 2025 score; ", pct(mean(vulns$published[is.na(vulns$epss_2025_01_01)] >= as.Date("2025-01-01")), 1), " of them were published after that date."), "Expected: they did not exist yet. Excluded from the prioritisation preview.",
+  "PhiUSIIL", "URLSimilarityIndex separates the classes almost perfectly (suspected leak).", "Excluded; we use URL-text features only.",
+  "PhiUSIIL", "All legitimate URLs are bare homepages.", "Documented; tested against Kenyan login and deep pages in Phase 4.",
+  "CA reports", "One PDF was truncated; several were only available as archived copies.", "Re-downloaded; archive links logged.",
+  "CA reports", "Category names change between reports (6 categories in 2026 vs 4 earlier).", "A category map (docs/ca_category_map.csv) is being built before categories are compared over time.",
+  "CA reports", paste0(ca_logged, " of ", length(ca_pdfs), " report files have a row in the source log."), "Missing rows to be added before final submission.",
+  "CA entry", "Not every quarter has been entered twice yet.", "Remaining quarters are being entered; each is checked automatically."
+) |> kbl(widths = c(14, 46, 40))
+```
+
+# Exploratory data analysis
+
+## Kenya: detected threat events
+
+```{r}
+#| label: fig-ca-totals
+#| fig-cap: "Detected cyber threat events in Kenya per quarter (log scale). Gaps are quarters not yet entered."
+first_q <- totals_check[1, ]; last_q <- totals_check[nrow(totals_check), ]
+ca_lab <- totals_check |> filter(row_number() %in% c(1, n()) | reported == max(reported[period_start < max(period_start)]))
+ggplot(totals_check, aes(period_start, reported)) +
+  geom_segment(aes(xend = period_start, y = 1e7, yend = reported), colour = navy, linewidth = 0.9) +
+  geom_point(colour = navy, size = 2.5) +
+  geom_point(data = ca_lab, colour = accent, size = 3.2) +
+  geom_text(data = ca_lab, aes(label = big(reported)), vjust = -1, size = 3.3, fontface = "bold") +
+  scale_y_log10(labels = label_number(scale_cut = cut_short_scale()), breaks = c(1e7, 1e8, 1e9, 1e10), limits = c(1e7, 1e10)) +
+  scale_x_date(date_labels = "%Y", date_breaks = "1 year") +
+  labs(title = paste0("From ", big(first_q$reported), " events in ", quarter_label(first_q$period_start),
+                      " to ", big(last_q$reported), " in ", quarter_label(last_q$period_start)),
+       x = NULL, y = "Detected events")
+```
+
+@fig-ca-totals shows the total detected events in each quarter entered so far. The scale is logarithmic (each gridline is ten times the one below) because the most recent figure is about `r round(last_q$reported / first_q$reported)` times the first. Detected events rose from `r big(first_q$reported)` in `r quarter_label(first_q$period_start)` to `r big(last_q$reported)` in `r quarter_label(last_q$period_start)`. These are detected events, mostly blocked attempts, so part of the growth is likely to reflect better detection rather than only more attacks. Part 1 will test this once all quarters are entered.
+
+```{r}
+#| label: fig-ca-mix
+#| fig-cap: "Share of detected events by category, for quarters that use the same four categories."
+early_cats <- c("Malware", "DDOS/Botnet", "System vulnerabilities", "Web Application Attacks")
+mix <- ca_cm |>
+  group_by(period_start) |>
+  filter(all(early_cats %in% category_raw)) |>
+  filter(category_raw %in% early_cats) |>
+  mutate(share = events / sum(events)) |> ungroup() |>
+  mutate(category_raw = factor(category_raw, rev(early_cats)))
+mal <- mix |> filter(category_raw == "Malware") |> arrange(period_start)
+latest <- ca_cm |> filter(period_start == max(period_start)) |> mutate(share = events / sum(events)) |> arrange(desc(share))
+ggplot(mix, aes(period_start, share, fill = category_raw)) +
+  geom_col(width = 75) +
+  scale_fill_manual(values = c("Malware" = navy, "DDOS/Botnet" = accent, "System vulnerabilities" = "#7a9cc6", "Web Application Attacks" = grey)) +
+  scale_y_continuous(labels = percent) +
+  scale_x_date(date_labels = "%b %Y", breaks = unique(mix$period_start)) +
+  labs(title = paste0("Malware fell from ", pct(first(mal$share), 0), " to ", pct(last(mal$share), 0), " of detected events"),
+       x = NULL, y = NULL, fill = NULL) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+@fig-ca-mix shows how the mix of threats changed. In `r quarter_label(first(mal$period_start))`, malware made up `r pct(first(mal$share), 0)` of detected events; by `r quarter_label(last(mal$period_start))` it was `r pct(last(mal$share), 0)`, with DDoS/botnet and system vulnerability events making up much of the rest. The most recent report entered (`r quarter_label(max(ca_cm$period_start))`) uses `r nrow(latest)` different categories, of which "`r latest$category_raw[1]`" alone is `r pct(latest$share[1], 0)` of all events. Because names change between reports, these later quarters will be compared only after the category map is complete.
+
+## Vulnerabilities: volume, scoring and exploitation
+
+```{r}
+#| label: fig-cves-year
+#| fig-cap: "CVEs published per year. The latest year is incomplete."
+per_year <- vulns |> filter(pub_year >= 2017) |> count(pub_year) |> mutate(partial = pub_year == max(pub_year))
+n_last <- per_year$n[per_year$partial]; n_prev <- per_year$n[per_year$pub_year == max(per_year$pub_year) - 1]
+ggplot(per_year, aes(pub_year, n, fill = partial)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = num(n)), vjust = -0.4, size = 2.8) +
+  scale_fill_manual(values = c(`FALSE` = navy, `TRUE` = accent), guide = "none") +
+  scale_x_continuous(breaks = per_year$pub_year) +
+  scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.1))) +
+  labs(title = paste0(max(per_year$pub_year), " already has ", round(n_last / n_prev, 1), " times as many CVEs as ", max(per_year$pub_year) - 1),
+       x = NULL, y = "CVEs published")
+```
+
+The number of published vulnerabilities rises every year (@fig-cves-year), from `r num(per_year$n[1])` in `r per_year$pub_year[1]` to `r num(n_prev)` in `r max(per_year$pub_year) - 1`. `r max(per_year$pub_year)` already has `r num(n_last)`. No organisation can patch this many, which is the motivation for question 3.
+
+```{r}
+#| label: fig-scorer
+#| fig-cap: "Who provided the CVSS severity score, by year of publication."
+vulns |>
+  filter(pub_year >= 2017) |>
+  mutate(scorer = case_when(is.na(cvss_scored_by) ~ "No score",
+                            cvss_scored_by == "nvd@nist.gov" ~ "NVD (independent)",
+                            TRUE ~ "Reporting company"),
+         scorer = factor(scorer, c("No score", "Reporting company", "NVD (independent)"))) |>
+  count(pub_year, scorer) |>
+  ggplot(aes(pub_year, n, fill = scorer)) +
+  geom_col(position = "fill", width = 0.8) +
+  scale_fill_manual(values = c("No score" = "grey85", "Reporting company" = accent, "NVD (independent)" = navy)) +
+  scale_x_continuous(breaks = 2017:ly) +
+  scale_y_continuous(labels = percent) +
+  labs(title = paste0("NVD scored over 90% of CVEs until 2023, but ", pct(ny$pct_nvd_of_all, 0), " in ", ly),
+       x = NULL, y = "Share of CVEs", fill = NULL)
+```
+
+@fig-scorer shows a change that matters for the whole project. Until 2023, NVD's own analysts scored over 90% of CVEs. Since 2024 that share has collapsed: in `r ly`, NVD scored `r pct(ny$pct_nvd_of_all, 0)` of all CVEs (`r pct(ny$pct_nvd_of_scored, 0)` of those that have a score at all). Most recent scores now come from the company that reported the vulnerability, often the vendor itself, so severity scores from different years are not directly comparable.
+
+```{r}
+#| label: fig-exploited
+#| fig-cap: "Share of CVEs that are known to be exploited (in KEV), by CVSS severity."
+sev <- vulns |>
+  filter(severity %in% c("LOW", "MEDIUM", "HIGH", "CRITICAL")) |>
+  group_by(severity) |>
+  summarise(n = n(), n_exp = sum(exploited), rate = mean(exploited)) |>
+  mutate(severity = factor(str_to_title(severity), c("Low", "Medium", "High", "Critical")))
+crit <- sev |> filter(severity == "Critical")
+ggplot(sev, aes(severity, rate, fill = severity == "Critical")) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = paste0(pct(rate, 2), "\n(", num(n_exp), " of ", num(n), ")")), vjust = -0.25, size = 3) +
+  scale_fill_manual(values = c(`FALSE` = navy, `TRUE` = accent), guide = "none") +
+  scale_y_continuous(labels = percent, expand = expansion(mult = c(0, 0.35))) +
+  labs(title = paste0("Even among Critical CVEs, only ", pct(crit$rate, 1), " are known to be exploited"),
+       x = "CVSS severity", y = "Share exploited")
+```
+
+Exploitation is rare: only `r num(sum(vulns$exploited))` of `r num(nrow(vulns))` CVEs (`r pct(mean(vulns$exploited), 2)`) are in KEV. @fig-exploited shows that higher severity goes with more exploitation, but even among Critical CVEs only `r pct(crit$rate, 2)` are exploited, so about 99 in 100 Critical CVEs have never been seen in a known attack. Two consequences follow for the modelling phase. First, severity alone is a weak guide to what to fix. Second, accuracy is a misleading measure: a model that predicts "never exploited" for everything would be `r pct(1 - mean(vulns$exploited), 1)` accurate and useless, so we will judge models by how many exploited CVEs they place near the top of their ranking.
+
+```{r}
+#| label: fig-text
+#| fig-cap: "Exploitation rate for CVEs whose description does or does not mention each phrase."
+flags <- vulns |>
+  select(exploited, `Remote code execution` = says_rce, `Authentication bypass` = says_auth_bypass, `SQL injection` = says_sqli) |>
+  pivot_longer(-exploited, names_to = "flag", values_to = "mentions") |>
+  group_by(flag, mentions) |>
+  summarise(n = n(), rate = mean(exploited), .groups = "drop") |>
+  mutate(mentions = if_else(mentions, "Description mentions it", "Does not"))
+ratio <- flags |> filter(flag == "Remote code execution") |>
+  summarise(r = rate[mentions == "Description mentions it"] / rate[mentions == "Does not"]) |> pull(r)
+med <- vulns |> filter(!is.na(cvss_score)) |> group_by(exploited) |> summarise(m = median(cvss_score))
+ggplot(flags, aes(rate, fct_rev(flag), fill = mentions)) +
+  geom_col(position = position_dodge(width = 0.75), width = 0.7) +
+  geom_text(aes(label = pct(rate, 2)), position = position_dodge(width = 0.75), hjust = -0.15, size = 3) +
+  scale_fill_manual(values = c("Description mentions it" = accent, "Does not" = grey)) +
+  scale_x_continuous(labels = percent, expand = expansion(mult = c(0, 0.2))) +
+  labs(title = paste0("Mentioning remote code execution makes exploitation ", format(round(ratio, 1), nsmall = 1), " times as likely"),
+       x = "Share exploited", y = NULL, fill = NULL)
+```
+
+The words in a description carry signal (@fig-text). CVEs that mention remote code execution are `r format(round(ratio, 1), nsmall = 1)` times as likely to be exploited as those that do not, and authentication bypass shows a similar pattern. SQL injection goes the other way, possibly because such flaws are common in small web applications that attackers rarely target at scale; we will test this in Part 2. Exploited CVEs also have a higher median CVSS score (`r med$m[med$exploited]`) than the rest (`r med$m[!med$exploited]`).
+
+```{r}
+#| label: fig-vendors
+#| fig-cap: "The ten vendors with the most CVEs in KEV."
+top_v <- kev |> count(vendorProject, sort = TRUE) |> slice_head(n = 10) |> mutate(top = row_number() == 1)
+ransom <- mean(kev$knownRansomwareCampaignUse == "Known")
+ggplot(top_v, aes(n, fct_reorder(vendorProject, n), fill = top)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = n), hjust = -0.2, size = 3) +
+  scale_fill_manual(values = c(`FALSE` = navy, `TRUE` = accent), guide = "none") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.1))) +
+  labs(title = paste0(top_v$vendorProject[1], " accounts for ", pct(top_v$n[1] / nrow(kev), 0), " of exploited CVEs"),
+       x = "CVEs in KEV", y = NULL)
+```
+
+```{r}
+kev_year <- kev |> count(year = year(dateAdded))
+```
+
+A small number of vendors dominate the exploited list (@fig-vendors). `r top_v$vendorProject[1]` alone accounts for `r top_v$n[1]` of `r num(nrow(kev))` KEV entries (`r pct(top_v$n[1] / nrow(kev), 0)`), and the top ten vendors together account for `r pct(sum(top_v$n) / nrow(kev), 0)`. `r pct(ransom, 0)` of KEV entries are known to have been used in ransomware campaigns. KEV additions peaked in `r kev_year$year[which.max(kev_year$n)]` (`r num(max(kev_year$n))` entries) after the catalog launched with its backlog.
+
+## Prioritisation preview: CVSS versus EPSS
+
+```{r}
+cutoff <- as.Date("2025-01-01")
+cand <- vulns |>
+  filter(as.Date(published) < cutoff, is.na(kev_date_added) | as.Date(kev_date_added) >= cutoff,
+         !is.na(cvss_score), !is.na(epss_2025_01_01)) |>
+  mutate(newly_exploited = !is.na(kev_date_added))
+set.seed(429)
+cand$tiebreak <- runif(nrow(cand))
+coverage <- function(score, name) {
+  cand |> arrange(desc({{ score }}), tiebreak) |>
+    mutate(patched = row_number() / n(), found = cumsum(newly_exploited) / sum(newly_exploited), method = name) |>
+    select(method, patched, found)
+}
+cov <- bind_rows(coverage(cvss_score, "CVSS severity"), coverage(epss_2025_01_01, "EPSS"))
+at <- function(p) cov |> filter(patched <= p) |> group_by(method) |> slice_tail(n = 1) |> mutate(budget = p)
+cov_tab <- bind_rows(at(0.01), at(0.05), at(0.10), at(0.20))
+at5 <- at(0.05)
+```
+
+To preview question 3, we set up a fair test. We take the `r num(nrow(cand))` CVEs that were published before **1 January 2025** and not yet in KEV on that date, and rank them using only scores available that day: CVSS severity, or the EPSS score published that day. We then check which of them were added to KEV afterwards (`r sum(cand$newly_exploited)` CVEs). A good ranking puts those CVEs near the top.
+
+```{r}
+#| label: fig-prio
+#| fig-cap: "Share of newly exploited CVEs caught when patching the top of each ranked list."
+cov |>
+  filter(patched <= 0.2) |>
+  ggplot(aes(patched, found, colour = method)) +
+  annotate("segment", x = 0, y = 0, xend = 0.2, yend = 0.2, linetype = "dashed", colour = "grey60") +
+  annotate("text", x = 0.17, y = 0.13, label = "random order", colour = "grey45", size = 3) +
+  geom_vline(xintercept = 0.05, colour = "grey85") +
+  geom_step(linewidth = 1) +
+  geom_point(data = at5, size = 2.5) +
+  geom_text(data = at5, aes(label = pct(found, 0)), hjust = -0.35, vjust = 1.2, size = 3.3, show.legend = FALSE) +
+  scale_colour_manual(values = c("EPSS" = accent, "CVSS severity" = navy)) +
+  scale_x_continuous(labels = percent) + scale_y_continuous(labels = percent) +
+  labs(title = paste0("Top 5%: EPSS caught ", pct(at5$found[at5$method == "EPSS"], 0), ", CVSS caught ",
+                      pct(at5$found[at5$method == "CVSS severity"], 0)),
+       x = "Share of the list patched (most urgent first)", y = "Newly exploited CVEs caught", colour = NULL)
+```
+
+```{r}
+#| label: tbl-prio
+#| tbl-cap: "Share of the newly exploited CVEs caught at different patching budgets."
+cov_tab |>
+  mutate(Budget = paste("Top", pct(budget, 0))) |>
+  select(Budget, method, found) |>
+  pivot_wider(names_from = method, values_from = found) |>
+  mutate(across(-Budget, ~ pct(.x, 0))) |>
+  kbl()
+```
+
+Patching the top 5% of the list ranked by EPSS would have caught `r pct(at5$found[at5$method == "EPSS"], 0)` of the newly exploited CVEs, against `r pct(at5$found[at5$method == "CVSS severity"], 0)` for the list ranked by CVSS (@fig-prio, @tbl-prio). For the same effort, EPSS finds about `r round(at5$found[at5$method == "EPSS"] / at5$found[at5$method == "CVSS severity"])` times as many. The advantage narrows as the budget grows. Because only `r sum(cand$newly_exploited)` CVEs were newly exploited, these percentages carry real uncertainty; Phase 3 will build our own model and test it against both baselines.
+
+## Phishing {#sec-eda-phishing}
+
+```{r}
+y <- phish$is_phishing == "phishing"
+auc <- function(x) {
+  r <- rank(x); n1 <- sum(y); n0 <- sum(!y)
+  a <- (sum(as.numeric(r[y])) - n1 * (n1 + 1) / 2) / (as.numeric(n1) * n0)
+  max(a, 1 - a)
+}
+url_text_cols <- c("URLLength", "DomainLength", "IsDomainIP", "CharContinuationRate", "TLDLegitimateProb", "URLCharProb",
+                   "TLDLength", "NoOfSubDomain", "HasObfuscation", "NoOfObfuscatedChar", "ObfuscationRatio",
+                   "NoOfLettersInURL", "LetterRatioInURL", "NoOfDegitsInURL", "DegitRatioInURL", "NoOfEqualsInURL",
+                   "NoOfQMarkInURL", "NoOfAmpersandInURL", "NoOfOtherSpecialCharsInURL", "SpacialCharRatioInURL", "IsHTTPS")
+num_cols <- phish |> select(where(is.numeric), -label) |> names()
+aucs_all <- tibble(feature = num_cols, auc = map_dbl(num_cols, \(c) auc(phish[[c]]))) |>
+  mutate(type = case_when(feature == "URLSimilarityIndex" ~ "Suspected leak",
+                          feature %in% url_text_cols ~ "From the URL text only",
+                          TRUE ~ "Needs the page to be visited"))
+aucs <- aucs_all |> slice_max(auc, n = 14)
+best_url <- aucs_all |> filter(type == "From the URL text only") |> slice_max(auc, n = 1)
+```
+
+The dataset is reasonably balanced: `r pct(mean(y), 1)` of URLs are phishing and `r pct(mean(!y), 1)` legitimate, with no missing values. To see which features separate the two classes, we computed the AUC of each feature on its own. AUC is the probability that a randomly chosen phishing URL scores as more suspicious than a randomly chosen legitimate one: 0.5 is no better than guessing and 1 is perfect.
+
+```{r}
+#| label: fig-auc
+#| fig-cap: "How well each single feature separates phishing from legitimate URLs (top 14 by AUC)."
+#| fig-height: 3.9
+ggplot(aucs, aes(auc, fct_reorder(feature, auc), fill = type)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = sprintf("%.3f", auc)), hjust = -0.15, size = 2.8) +
+  scale_fill_manual(values = c("Suspected leak" = accent, "Needs the page to be visited" = grey, "From the URL text only" = navy)) +
+  coord_cartesian(xlim = c(0.5, 1.03)) +
+  labs(title = paste0("One feature alone scores AUC ", sprintf("%.3f", max(aucs$auc)), ": too perfect to trust"),
+       x = "AUC", y = NULL, fill = NULL)
+```
+
+URLSimilarityIndex reaches an AUC of `r sprintf("%.3f", max(aucs$auc))` on its own (@fig-auc). A single feature that separates the classes almost perfectly usually means it was built using information about the answer, so we treat it as a leak and exclude it. Most of the other strong features describe the web page and can only be measured by visiting it. The best feature computed from the URL text alone is `r best_url$feature` (AUC `r sprintf("%.3f", best_url$auc)`).
+
+```{r}
+#| label: fig-kenya
+#| fig-cap: "Share of URLs with a path after the domain, with median URL length, for global and Kenyan URLs."
+ke_feat <- bind_cols(ke, url_features(ke$url))
+groups <- bind_rows(
+  phish_url |> transmute(group = if_else(is_phishing == "phishing", "Global phishing", "Global legitimate"), path_length, url_length),
+  ke_feat |> transmute(group = recode(page_type, homepage = "Kenyan homepages", login_service = "Kenyan login / service pages",
+                                      deep = "Kenyan deep pages"), path_length, url_length)
+) |>
+  group_by(group) |>
+  summarise(n = n(), with_path = mean(path_length > 1), median_len = median(url_length)) |>
+  mutate(is_ke = str_starts(group, "Kenyan"))
+n_ke_dom <- sum(str_detect(str_to_lower(phish$Domain), "\\.ke$"))
+sub_diff <- sum(phish_url$n_subdomains_naive != phish_url$n_subdomains_fixed)
+ggplot(groups, aes(with_path, fct_reorder(group, with_path), fill = is_ke)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = paste0(pct(with_path, 0), "  (median ", median_len, " chars)")), hjust = -0.05, size = 3) +
+  scale_fill_manual(values = c(`FALSE` = grey, `TRUE` = navy), guide = "none") +
+  scale_x_continuous(labels = percent, limits = c(0, 1.5), breaks = seq(0, 1, 0.25)) +
+  labs(title = "Kenyan login and deep pages look unlike any legitimate URL in the training data",
+       x = "URLs with a path", y = NULL)
+```
+
+@fig-kenya reveals the most important finding for question 4. Every legitimate URL in PhiUSIIL is a bare homepage: `r pct(groups$with_path[groups$group == "Global legitimate"], 0)` have a path after the domain, against `r pct(groups$with_path[groups$group == "Global phishing"], 0)` of phishing URLs. A model trained on this data can therefore learn the shortcut "a URL with a path is phishing". Kenyan homepages look like the training data, but `r pct(groups$with_path[groups$group == "Kenyan login / service pages"], 0)` of Kenyan login and service pages and `r pct(groups$with_path[groups$group == "Kenyan deep pages"], 0)` of deeper pages have a path. These are exactly the pages where Kenyans enter passwords and M-Pesa details. The dataset contains only `r n_ke_dom` URLs ending in `.ke`. Our Kenya-aware subdomain count changes the value for `r num(sub_diff)` dataset URLs, but it matters for Kenyan sites: `safaricom.co.ke` is counted as having no subdomain instead of one. Phase 4 will test whether a URL-only model wrongly flags legitimate Kenyan pages.
+
+# Summary of findings
+
+1. **Kenya:** detected threat events rose from `r big(first_q$reported)` a quarter in `r quarter_label(first_q$period_start)` to `r big(last_q$reported)` in `r quarter_label(last_q$period_start)`, and the threat mix moved away from malware.
+2. **Volume:** `r max(per_year$pub_year)` already has `r num(n_last)` new CVEs, `r round(n_last / n_prev, 1)` times the whole of `r max(per_year$pub_year) - 1`.
+3. **Exploitation is rare:** `r pct(mean(vulns$exploited), 2)` of all CVEs and `r pct(crit$rate, 2)` of Critical ones are known to be exploited.
+4. **Signals exist:** remote code execution in the description, higher CVSS scores and a handful of vendors are associated with exploitation.
+5. **Severity is a weak guide to priority:** in a fair test, EPSS caught about `r round(at5$found[at5$method == "EPSS"] / at5$found[at5$method == "CVSS severity"])` times as many newly exploited CVEs as CVSS for the same effort.
+6. **Data quality:** since 2024 most severity scores come from the reporting company rather than NVD.
+7. **Phishing:** the global dataset contains a likely leak and has never seen a Kenyan login page, which motivates our Kenyan test in Phase 4.
+
+# Limitations and next steps
+
+**Limitations.** The Kenyan figures are detected events, not confirmed breaches, and not every quarter has been entered and double-checked yet. Category names change between reports. KEV reflects known exploitation and is focused on products used by US agencies. Our NVD download starts at CVE-2016 IDs. PhiUSIIL is global, and our Kenyan list contains legitimate pages only.
+
+**Next steps.** (1) Finish double entry for the remaining quarters and build the category map so all quarters can be compared. (2) Analyse Kenyan trends (Part 1). (3) Model which vulnerability characteristics are associated with exploitation (Part 2). (4) Build our own prioritisation model and compare it with CVSS and EPSS using the time-split test above (Part 3). (5) Train a URL-only phishing model and test it on the Kenyan URL list (Part 4).
+
+# Reproducibility
+
+Anyone can rebuild every result in this document:
+
+1. Clone <https://github.com/Sophie-Muchiri12/data-forge-cyber> and switch to the `dev` branch.
+2. Run the download scripts (`01_download_kev.R`, `02_download_nvd.R`, `06_download_epss.R`, `download_ca_reports.R`, `collect_kenya_urls.R`) or copy the large raw files from the team Drive.
+3. Run the build scripts in order: `03_build_nvd.R`, `04_build_vulns.R`, `05_build_phishing.R`, `06_build_url_features.R`.
+4. Render this file, `report/phase2_submission.qmd`. The EDA notebooks for each dataset are in `analysis/`.
+
+```{r}
+pkgs <- c("tidyverse", "dplyr", "ggplot2", "readr", "lubridate", "jsonlite", "scales", "knitr")
+pkg_v <- map_chr(pkgs, \(p) tryCatch(as.character(packageVersion(p)), error = function(e) "not installed"))
+```
+
+This edition was rendered with `r R.version.string` and these package versions: `r paste0(pkgs, " ", pkg_v, collapse = ", ")`.
+
+# Appendix A: Team and contributions {.appendix}
+
+```{r}
+tribble(
+  ~Name, ~`Admission no.`, ~`Phase 2 contribution`,
+  "Sophie Muthoni Muchiri", "1060697", "Repository set-up; KE-CIRT/CC report downloads; EPSS download; prioritisation preview; presentation and submission",
+  "Consolata Makau", "1064147", "KE-CIRT/CC data entry (first entry); report manifest",
+  "Nathan Ochieng' Otieno", "1061016", "NVD download and parsing; vulnerability table (vulns.rds); NVD and KEV exploration",
+  "Quintone Mark Juma", "1061327", "KEV and PhiUSIIL downloads; phishing cleaning and URL features; phishing exploration",
+  "Felix Kiptoo Kerich", "1060821", "KE-CIRT/CC data entry (second entry); source log checks; cleaning table and data quality checks",
+  "Bradley Mudhune", "1060674", "Kenyan URL list; chart theme"
+) |> kbl(widths = c(24, 13, 63))
+```
+
+# Appendix B: Data dictionary for vulns.rds {.appendix}
+
+```{r}
+desc <- c(
+  cve_id = "CVE identifier", reported_by = "Organisation that reported the CVE", published = "Date published in NVD",
+  nvd_status = "NVD processing status", description = "English description of the weakness",
+  cvss_version = "CVSS version of the score used (3.0 or 3.1)", cvss_score = "CVSS v3 base score, 0 to 10",
+  severity = "Severity band from the score: LOW, MEDIUM, HIGH, CRITICAL", cvss_scored_by = "Who gave the score (NVD or the reporter)",
+  attack_vector = "How the attack is delivered: NETWORK, ADJACENT, LOCAL, PHYSICAL", attack_complexity = "LOW or HIGH",
+  privileges_required = "Access the attacker needs: NONE, LOW, HIGH", user_interaction = "Whether a user must act: NONE, REQUIRED",
+  scope = "Whether impact spreads beyond the component: UNCHANGED, CHANGED", confidentiality = "Impact on confidentiality",
+  integrity = "Impact on integrity", availability = "Impact on availability", cwe = "First weakness type (CWE ID)",
+  vendor = "Vendor of the first affected product", product = "First affected product",
+  n_references = "Number of reference links (description only, never a model input)",
+  kev_date_added = "Date added to KEV (missing if not in KEV)", ransomware = "KEV: known use in ransomware",
+  epss_2025_01_01 = "EPSS score on 1 January 2025", exploited = "TRUE if the CVE is in KEV", pub_year = "Year published",
+  cwe_group = "CWE, top 15 kept, others grouped as Other", vendor_group = "Vendor, top 20 kept, others grouped as Other",
+  says_rce = "Description mentions remote code execution", says_auth_bypass = "Description mentions authentication bypass",
+  says_sqli = "Description mentions SQL injection", desc_length = "Description length in characters")
+tibble(Column = names(vulns),
+       Type = map_chr(vulns, \(x) class(x)[1]),
+       `Missing` = map_chr(vulns, \(x) pct(mean(is.na(x)), 1)),
+       Meaning = unname(desc[names(vulns)])) |>
+  kbl(widths = c(22, 12, 10, 56))
+```

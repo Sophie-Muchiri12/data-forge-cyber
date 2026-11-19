@@ -1,0 +1,257 @@
+---
+title: "Part 4: Phishing URLs and the Kenyan website test"
+subtitle: "Phase 8 of the playbook: two phishing models, and whether a globally trained model wrongly flags real Kenyan websites"
+format:
+  html:
+    embed-resources: true
+    toc: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r setup}
+library(tidyverse)
+library(rsample)
+library(ranger)
+library(scales)
+source(here::here("R/theme_dataforge.R"))
+source(here::here("R/url_features.R"))
+theme_set(theme_dataforge())
+navy <- "#1f3a5f"; accent <- "#d95f02"; grey <- "#9aa3ad"
+fig_dir <- here::here("outputs/figures")
+pct <- function(x, d = 1) paste0(format(round(100 * x, d), nsmall = d), "%")
+
+phish     <- readRDS(here::here("data/processed/phishing.rds"))
+phish_url <- readRDS(here::here("data/processed/phishing_url_features.rds"))
+ke        <- read_csv(here::here("data/raw/kenya_urls.csv"), show_col_types = FALSE)
+```
+
+**Research question (d):** To what extent can predictive models use phishing URL attributes to identify high-risk threats, and does a model trained on global data work on Kenyan websites?
+
+## 1. Train and test sets (same split for both models)
+
+```{r split}
+set.seed(429)
+phish$row_id <- seq_len(nrow(phish))
+split <- initial_split(phish |> select(row_id, is_phishing), prop = 0.8, strata = is_phishing)
+train_ids <- training(split)$row_id
+test_ids  <- testing(split)$row_id
+c(train = length(train_ids), test = length(test_ids))
+```
+
+80% of the 235,795 URLs train the models; the other 20% are kept aside to test them.
+
+## 2. Model A: all features, including page content (8.3)
+
+Model A uses every numeric feature in PhiUSIIL, including those that need the page to be downloaded (lines of code, images, external links) and URLSimilarityIndex, which Phase 2 flagged as a likely leak. It is a random forest.
+
+```{r model-a}
+a_data <- phish |>
+  select(where(is.numeric), is_phishing, -label, -row_id) |>
+  mutate(is_phishing = factor(is_phishing, levels = c("phishing", "legitimate")))
+
+fit_a <- ranger(is_phishing ~ ., data = a_data[train_ids, ], num.trees = 100,
+                probability = TRUE, importance = "impurity", seed = 429)
+p_a <- predict(fit_a, a_data[test_ids, ])$predictions[, "phishing"]
+```
+
+## 3. Model B: URL text only (8.4)
+
+Model B only sees what can be read from the web address itself, using our own `url_features()` (18 features, including the Kenya-aware subdomain count). That is what a browser warning or an SMS filter could check *before* anyone clicks. It is a **logistic regression**, the simple model the brief asks for, with a random forest on the same features as a comparison.
+
+### A formatting trap: the trailing slash
+
+```{r slash}
+ends_slash <- function(u) str_detect(u, "/$")
+tibble(Group = c("PhiUSIIL legitimate", "PhiUSIIL phishing", "Kenyan homepages", "All Kenyan URLs"),
+       `URLs ending in "/"` = pct(c(mean(ends_slash(phish$URL[phish$is_phishing == "legitimate"])),
+                                    mean(ends_slash(phish$URL[phish$is_phishing == "phishing"])),
+                                    mean(ends_slash(ke$url[ke$page_type == "homepage"])),
+                                    mean(ends_slash(ke$url))), 0)) |>
+  knitr::kable()
+```
+
+No legitimate URL in PhiUSIIL ends in "/", but over a third of phishing URLs do, and almost every Kenyan homepage does (`https://www.kcbgroup.com/`). `kcbgroup.com/` and `kcbgroup.com` are the same address, so this is a storage artefact, not a sign of phishing. We therefore fit Model B twice:
+
+- **Raw:** features from the URLs exactly as stored.
+- **Normalised (main model):** trailing slashes removed from every URL, training and Kenyan alike, before computing features.
+
+```{r model-b}
+b_features <- c("url_length", "domain_length", "is_ip", "tld_length", "n_subdomains_fixed",
+                "is_https", "letter_ratio", "n_digits", "digit_ratio", "n_equals", "n_qmark",
+                "n_ampersand", "n_hyphens_domain", "n_other_special", "has_at",
+                "has_percent_code", "path_length", "n_path_parts")
+normalise <- function(u) str_remove(str_trim(u), "/+$")
+label <- factor(phish$is_phishing, levels = c("phishing", "legitimate"))
+
+b_raw  <- phish_url |> select(all_of(b_features)) |> mutate(is_phishing = label)
+b_norm <- url_features(normalise(phish$URL)) |> select(all_of(b_features)) |> mutate(is_phishing = label)
+
+fit_glm <- function(d) glm(I(is_phishing == "phishing") ~ ., data = d[train_ids, ], family = binomial)
+fit_b_raw  <- fit_glm(b_raw)
+fit_b      <- fit_glm(b_norm)
+fit_b_rf   <- ranger(is_phishing ~ ., data = b_norm[train_ids, ], num.trees = 200,
+                     probability = TRUE, importance = "impurity", seed = 429)
+
+p_b_raw <- predict(fit_b_raw, b_raw[test_ids, ], type = "response")
+p_b     <- predict(fit_b, b_norm[test_ids, ], type = "response")
+p_b_rf  <- predict(fit_b_rf, b_norm[test_ids, ])$predictions[, "phishing"]
+```
+
+## 4. How well each model does on the global test set
+
+```{r metrics}
+truth <- phish$is_phishing[test_ids] == "phishing"
+roc_auc <- function(score, y) {
+  r <- rank(score); n1 <- sum(y); n0 <- sum(!y)
+  (sum(r[y]) - n1 * (n1 + 1) / 2) / (as.numeric(n1) * n0)
+}
+scorecard <- function(p, name) {
+  pred <- p >= 0.5
+  tibble(Model = name,
+         Accuracy = mean(pred == truth),
+         Precision = sum(pred & truth) / sum(pred),
+         Recall = sum(pred & truth) / sum(truth),
+         `False alarms on legitimate URLs` = sum(pred & !truth) / sum(!truth),
+         `ROC-AUC` = roc_auc(p, truth))
+}
+results <- bind_rows(
+  scorecard(p_a, "Model A: all features (random forest)"),
+  scorecard(p_b_raw, "Model B raw: URL text (logistic regression)"),
+  scorecard(p_b, "Model B normalised: URL text (logistic regression)"),
+  scorecard(p_b_rf, "Model B normalised: URL text (random forest)")
+)
+results |> mutate(across(c(Accuracy, Precision, Recall, `False alarms on legitimate URLs`), \(x) pct(x, 2)),
+                  `ROC-AUC` = round(`ROC-AUC`, 4)) |>
+  knitr::kable()
+res_a <- results[1, ]; res_braw <- results[2, ]; res_b <- results[3, ]; res_brf <- results[4, ]
+auc_a <- results$`ROC-AUC`[1]
+```
+
+- **Precision:** of the URLs flagged as phishing, the share that really are phishing.
+- **Recall:** of the real phishing URLs, the share the model catches.
+- **False alarms:** the share of legitimate URLs wrongly flagged.
+
+```{r importance-a}
+imp_a <- tibble(feature = names(fit_a$variable.importance), importance = fit_a$variable.importance) |>
+  mutate(share = importance / sum(importance)) |>
+  arrange(desc(importance))
+head(imp_a, 8)
+top_a <- imp_a$feature[1]
+top_a_share <- imp_a$share[1]
+```
+
+Model A's single most important feature is **`r top_a`**, which carries `r pct(top_a_share, 0)` of the model's total importance on its own. Model A's perfect score comes mostly from a suspected leak and from features that need the page to be visited, which a link checker would not have.
+
+## 5. The Kenyan website test (8.5)
+
+All `r nrow(ke)` Kenyan URLs are real, legitimate pages. Any Kenyan URL that Model B scores as phishing (probability 0.5 or more) is a **false alarm**.
+
+```{r kenya}
+ke_raw  <- url_features(ke$url)
+ke_norm <- url_features(normalise(ke$url))
+ke_scored <- ke |>
+  mutate(p_raw = predict(fit_b_raw, ke_raw, type = "response"),
+         p_phish = predict(fit_b, ke_norm, type = "response"),
+         p_phish_rf = predict(fit_b_rf, ke_norm)$predictions[, "phishing"],
+         flagged_raw = p_raw >= 0.5, flagged = p_phish >= 0.5, flagged_rf = p_phish_rf >= 0.5,
+         page = recode(page_type, homepage = "Homepages", login_service = "Login / service pages",
+                       deep = "Deep pages"))
+
+global_fpr <- res_b$`False alarms on legitimate URLs`
+ke_fpr_raw <- mean(ke_scored$flagged_raw)
+ke_fpr     <- mean(ke_scored$flagged)
+ke_fpr_rf  <- mean(ke_scored$flagged_rf)
+
+by_page <- ke_scored |>
+  group_by(page) |>
+  summarise(urls = n(),
+            fpr_raw = mean(flagged_raw), fpr = mean(flagged), fpr_rf = mean(flagged_rf),
+            n_flagged = sum(flagged))
+by_page |> transmute(`Page type` = page, URLs = urls,
+                     `Raw URLs (logistic)` = pct(fpr_raw, 0),
+                     `Normalised (logistic)` = pct(fpr, 0),
+                     `Normalised (random forest)` = pct(fpr_rf, 0)) |>
+  knitr::kable(caption = "Share of real Kenyan URLs wrongly flagged as phishing")
+
+ke_scored |> group_by(Sector = sector) |>
+  summarise(URLs = n(), `Wrongly flagged (normalised, logistic)` = pct(mean(flagged), 0)) |>
+  arrange(desc(URLs)) |> knitr::kable()
+```
+
+```{r kenya-chart}
+#| fig-width: 10
+#| fig-height: 4.5
+chart_data <- bind_rows(
+  tibble(group = "Global legitimate URLs (test set)", fpr = global_fpr),
+  tibble(group = "All Kenyan URLs", fpr = ke_fpr),
+  by_page |> transmute(group = paste("Kenyan", str_to_lower(page)), fpr)
+) |> mutate(is_ke = group != "Global legitimate URLs (test set)")
+p4 <- ggplot(chart_data, aes(fpr, fct_reorder(group, fpr), fill = is_ke)) +
+  geom_col(width = 0.65) +
+  geom_text(aes(label = pct(fpr, 0)), hjust = -0.2, size = 4) +
+  scale_fill_manual(values = c(`FALSE` = grey, `TRUE` = navy), guide = "none") +
+  scale_x_continuous(labels = percent, limits = c(0, 1.08)) +
+  labs(title = paste0("The URL-only model wrongly flags ", pct(ke_fpr, 0), " of real Kenyan websites, against ",
+                      pct(global_fpr, 1), " of global ones"),
+       subtitle = "Share of legitimate URLs scored as phishing (Model B, logistic regression, trailing slashes removed)",
+       x = "Legitimate URLs wrongly flagged as phishing", y = "URL group")
+p4
+ggsave(file.path(fig_dir, "p4_kenyan_false_alarms.png"), p4, width = 10, height = 4.5, dpi = 300, bg = "white")
+```
+
+Examples of Kenyan pages still wrongly flagged after normalising:
+
+```{r examples}
+ke_scored |> filter(flagged) |> arrange(desc(p_phish)) |>
+  transmute(url = str_trunc(url, 70), organisation, page, p_phish = round(p_phish, 2)) |>
+  head(10) |> knitr::kable()
+```
+
+## 6. Why: what Model B learned (8.6)
+
+R warned that the logistic regression reached fitted probabilities of exactly 0 or 1. That is **perfect separation**: some features split the training data with no exceptions, so their coefficients run off to infinity and cannot be read as odds ratios. The table below shows which features do this.
+
+```{r separation}
+train_norm <- b_norm[train_ids, ]
+sep <- function(d) {
+  d |> summarise(`Has a path after the domain` = mean(path_length > 0),
+                 `Does not use https` = mean(is_https == 0),
+                 `Has a query (?)` = mean(n_qmark > 0),
+                 `Uses an IP address` = mean(is_ip == 1))
+}
+sep_tbl <- bind_rows(
+  sep(filter(train_norm, is_phishing == "legitimate")) |> mutate(Group = "PhiUSIIL legitimate (training)"),
+  sep(filter(train_norm, is_phishing == "phishing")) |> mutate(Group = "PhiUSIIL phishing (training)"),
+  sep(ke_norm) |> mutate(Group = "Real Kenyan URLs")
+) |> relocate(Group)
+sep_tbl |> mutate(across(-Group, \(x) pct(x, 1))) |> knitr::kable()
+ke_path_share <- ke |> mutate(has_path = ke_norm$path_length > 0) |>
+  group_by(page = recode(page_type, homepage = "Homepages", login_service = "Login / service pages",
+                         deep = "Deep pages")) |>
+  summarise(has_path = mean(has_path))
+legit_path <- sep_tbl$`Has a path after the domain`[1]
+legit_http <- sep_tbl$`Does not use https`[1]
+```
+
+In the training data, not one legitimate URL has a path, a query, an IP address or plain http (all `r pct(legit_path, 1)`). So the model learns two rules: "a path means phishing" and "no https means phishing". Real Kenyan login, service and deeper pages all have paths, so the model treats them as phishing. The shares of Kenyan URLs with a path (homepages `r pct(ke_path_share$has_path[ke_path_share$page == "Homepages"], 0)`, login and service pages `r pct(ke_path_share$has_path[ke_path_share$page == "Login / service pages"], 0)`, deep pages `r pct(ke_path_share$has_path[ke_path_share$page == "Deep pages"], 0)`) are almost exactly the false-alarm rates above.
+
+## 7. Findings (8.7)
+
+```{r findings-numbers}
+fp <- function(pg, col = "fpr") by_page[[col]][by_page$page == pg]
+```
+
+1. **The famous high accuracy comes from giveaway features.** Model A, using all PhiUSIIL features, reaches `r pct(res_a$Accuracy, 2)` accuracy (ROC-AUC `r round(auc_a, 4)`), led by `r top_a`, a suspected leak.
+2. **A URL-only model still looks excellent on the global data.** Model B (logistic regression, trailing slashes removed) reaches `r pct(res_b$Accuracy, 1)` accuracy, `r pct(res_b$Precision, 1)` precision and `r pct(res_b$Recall, 1)` recall, wrongly flagging `r pct(global_fpr, 1)` of legitimate test URLs.
+3. **A trailing slash alone fools the raw model.** No legitimate PhiUSIIL URL ends in "/", so the raw model flags `r pct(ke_fpr_raw, 0)` of real Kenyan URLs, including `r pct(fp("Homepages", "fpr_raw"), 0)` of Kenyan homepages, purely because they are written with a final "/". The same artefact inflates the global score: removing trailing slashes lowers Model B's accuracy from `r pct(res_braw$Accuracy, 1)` to `r pct(res_b$Accuracy, 1)`.
+4. **Even after fixing that, it fails on Kenyan sites.** With trailing slashes removed, Model B still wrongly flags `r pct(ke_fpr, 0)` of real Kenyan URLs (random forest: `r pct(ke_fpr_rf, 0)`), against `r pct(global_fpr, 1)` of global legitimate URLs: `r pct(fp("Homepages"), 0)` of homepages, `r pct(fp("Login / service pages"), 0)` of login and service pages and `r pct(fp("Deep pages"), 0)` of deeper pages, exactly where people enter passwords and M-Pesa details.
+5. **Answer to research question (d), phishing part.** URL attributes separate phishing from legitimate URLs very well inside the global dataset, but a model trained on PhiUSIIL learns that "a URL with anything after the domain is phishing". It should not be deployed on Kenyan sites without retraining on legitimate Kenyan pages of every type.
+
+## Limitations
+
+- PhiUSIIL's legitimate URLs are all bare homepages stored without a trailing slash, which is what drives the Kenyan false alarms; a better training set would include legitimate deep pages.
+- The Kenyan list contains only legitimate pages, so we can measure false alarms but not how well phishing aimed at Kenyans is caught.
+- No phishing pages were visited at any point; all features are computed from the URL text.

@@ -1,0 +1,195 @@
+## Part 2: What makes a vulnerability get exploited?
+
+```{r}
+#| label: p2-setup
+#| include: false
+library(tidyverse)
+library(broom)
+source(here::here("R", "theme_dataforge.R"))
+
+p2_v <- readRDS(here::here("data", "processed", "vulns.rds")) |>
+  filter(pub_year >= 2016, !is.na(cvss_score)) |>
+  mutate(cwe_top15 = fct_lump_n(cwe, n =15))
+
+p2_rate <- function(var) {
+  p2_v |>
+    group_by({{ var }}) |>
+    summarise(n = n(), rate = 100 * mean(exploited), .groups = "drop")
+}
+
+p2_n       <- nrow(p2_v)
+p2_n_exp   <- sum(p2_v$exploited)
+p2_overall <- 100 * mean(p2_v$exploited)
+
+p2_sev  <- p2_rate(severity)
+p2_crit <- p2_sev$rate[p2_sev$severity == "CRITICAL"]
+p2_med  <- p2_sev$rate[p2_sev$severity == "MEDIUM"]
+
+p2_rce     <- p2_rate(says_rce)
+p2_rce_yes <- p2_rce$rate[p2_rce$says_rce]
+p2_rce_no  <- p2_rce$rate[!p2_rce$says_rce]
+
+p2_cwe_names <- c(
+  "CWE-78"  = "OS command injection",       "CWE-22"  = "Path traversal",
+  "CWE-787" = "Out-of-bounds write",        "CWE-416" = "Use after free",
+  "CWE-20"  = "Improper input validation",  "CWE-119" = "Buffer overflow",
+  "CWE-284" = "Improper access control",    "CWE-89"  = "SQL injection",
+  "CWE-74"  = "Injection (general)",        "CWE-200" = "Information exposure",
+  "CWE-125" = "Out-of-bounds read",         "CWE-862" = "Missing authorisation",
+  "CWE-79"  = "Cross-site scripting (XSS)", "CWE-352" = "Cross-site request forgery (CSRF)",
+  "CWE-476" = "NULL pointer dereference"
+)
+
+p2_cwe <- p2_rate(cwe_top15) |>
+  filter(!is.na(cwe_top15), cwe_top15 != "Other") |>
+  mutate(label = paste(cwe_top15, p2_cwe_names[as.character(cwe_top15)]))
+p2_cwe78   <- p2_cwe$rate[p2_cwe$cwe_top15 == "CWE-78"]
+p2_cwe79   <- p2_cwe$rate[p2_cwe$cwe_top15 == "CWE-79"]
+p2_cwe79_n <- p2_cwe$n[p2_cwe$cwe_top15 == "CWE-79"]
+
+p2_wil <- wilcox.test(cvss_score ~ exploited, data = p2_v)
+p2_scores <- p2_v |> group_by(exploited) |> summarise(median = median(cvss_score))
+p2_med_exp <- p2_scores$median[p2_scores$exploited]
+p2_med_not <- p2_scores$median[!p2_scores$exploited]
+
+p2_assoc <- function(var) {
+  tab  <- table(p2_v[[var]], p2_v$exploited)
+  test <- suppressWarnings(chisq.test(tab))
+  tibble(feature  = var,
+         p_value  = test$p.value,
+         cramers_v = unname(sqrt(test$statistic / (sum(tab) * (min(dim(tab)) - 1)))))
+}
+
+p2_tests <- map_dfr(c("severity", "attack_vector", "privileges_required",
+                      "user_interaction", "says_rce", "cwe_group", "vendor_group"),
+                    p2_assoc)
+p2_v_max <- max(p2_tests$cramers_v)
+p2_p_max <- max(p2_tests$p_value)
+
+p2_fit <- glm(exploited ~ cvss_score + attack_vector + privileges_required +
+                user_interaction + says_rce + says_auth_bypass + vendor_group,
+              data = p2_v, family = binomial)
+
+p2_odds <- tidy(p2_fit) |>
+  filter(term != "(Intercept)") |>
+  mutate(odds_ratio = exp(estimate),
+         low  = exp(estimate - 1.96 * std.error),
+         high = exp(estimate + 1.96 * std.error))
+
+p2_or <- function(t) p2_odds$odds_ratio[p2_odds$term == t]
+p2_or_auth   <- p2_or("says_auth_bypassTRUE")
+p2_or_cvss   <- p2_or("cvss_score")
+p2_or_ui     <- p2_or("user_interactionREQUIRED")
+p2_or_prnone <- p2_or("privileges_requiredNONE")
+p2_or_ms     <- p2_or("vendor_groupmicrosoft")
+p2_or_cisco  <- p2_or("vendor_groupcisco")
+
+p2_pr <- p2_v |>
+  group_by(privileges_required) |>
+  summarise(rate = 100 * mean(exploited), median = median(cvss_score))
+p2_pr_none <- p2_pr |> filter(privileges_required == "NONE")
+p2_pr_high <- p2_pr |> filter(privileges_required == "HIGH")
+
+p2_zero_vendors <- p2_v |>
+  group_by(vendor_group) |>
+  summarise(exploited = sum(exploited)) |>
+  filter(exploited == 0) |>
+  pull(vendor_group)
+
+p2_nice_names <- c(
+  "vendor_group"         = "",
+  "attack_vector"        = "Attack vector: ",
+  "privileges_required"  = "Privileges needed: ",
+  "user_interaction"     = "User interaction: ",
+  "says_auth_bypassTRUE" = "Mentions authentication bypass",
+  "says_rceTRUE"         = "Mentions remote code execution",
+  "cvss_score"           = "CVSS score (each extra point)"
+)
+
+p2_odds_plot <- p2_odds |>
+  filter(!term %in% paste0("vendor_group", p2_zero_vendors)) |>
+  mutate(label = str_replace_all(term, p2_nice_names),
+         is_vendor = str_starts(term, "vendor_group"))
+```
+
+Critical vulnerabilities were `r round(p2_crit / p2_med)` times more likely to be exploited than Medium ones (`r round(p2_crit, 2)`% against `r round(p2_med, 2)`%, @fig-p2-severity). We compared the `r scales::comma(p2_n)` CVEs published from 2016 onwards that have a CVSS score. Of these, `r scales::comma(p2_n_exp)` (`r round(p2_overall, 2)`%) are in CISA's Known Exploited Vulnerabilities (KEV) catalog, which is how we label a vulnerability as exploited.
+
+```{r}
+#| label: fig-p2-severity
+#| fig-cap: "Share of CVEs exploited in each CVSS severity band, with the number of CVEs in each band."
+#| echo: false
+p2_sev |>
+  filter(severity != "NONE") |>
+  mutate(severity = factor(severity, levels = c("LOW", "MEDIUM", "HIGH", "CRITICAL"))) |>
+  ggplot(aes(x = severity, y = rate)) +
+  geom_col() +
+  geom_text(aes(label = paste0(round(rate, 2), "%  (n = ", scales::comma(n), ")")),
+            vjust = -0.5) +
+  labs(title = paste0("Critical CVEs are exploited ", round(p2_crit / p2_med),
+                      " times as often as Medium ones"),
+       x = "CVSS severity", y = "Exploited (%)") +
+  theme_dataforge()
+```
+
+Descriptions that mention remote code execution were the next clearest signal: those CVEs were exploited at `r round(p2_rce_yes, 2)`%, about `r round(p2_rce_yes / p2_rce_no)` times the rate of the rest (`r round(p2_rce_no, 2)`%). The type of weakness mattered too (@fig-p2-cwe). OS command injection (CWE-78) was exploited at `r round(p2_cwe78, 2)`%, while cross-site scripting (CWE-79), the most common weakness type with `r scales::comma(p2_cwe79_n)` CVEs, was exploited at only `r round(p2_cwe79, 2)`%.
+
+```{r}
+#| label: fig-p2-cwe
+#| fig-cap: "Exploit rate for the 15 most common weakness types (CWE). The dashed line is the average for all CVEs."
+#| echo: false
+#| fig-width: 9
+#| fig-height: 6
+p2_cwe |>
+  ggplot(aes(x = rate, y = fct_reorder(label, rate))) +
+  geom_col() +
+  geom_vline(xintercept = p2_overall, linetype = "dashed") +
+  annotate("text", x = p2_overall, y = 1, hjust = -0.1,
+           label = paste0("average ", round(p2_overall, 2), "%")) +
+  labs(title = "OS command injection (CWE-78) is the most exploited weakness type",
+       x = "Exploited (%)", y = "Weakness type (CWE)") +
+  theme_dataforge()
+```
+
+These differences are real but small. Exploited CVEs had a median CVSS score of `r p2_med_exp`, against `r p2_med_not` for the rest (Wilcoxon test, p `r format.pval(p2_wil$p.value, eps = 0.001)`), and chi-square tests linked every feature we tested to exploitation (all p-values below `r signif(p2_p_max, 1)`). With over 300,000 CVEs, however, almost any difference counts as "significant", so we also measured how strong each link is with Cramér's V, which runs from 0 (no link) to 1 (a perfect link). The strongest link was only `r round(p2_v_max, 2)`, so no single feature predicts exploitation well on its own.
+
+Looking at all the features together in one logistic regression model, which measures how much each feature changes the odds of exploitation while the others are held fixed, a mention of authentication bypass had the strongest effect: it multiplied the odds by `r round(p2_or_auth, 1)` (@fig-p2-odds-features). An odds ratio above 1 means more likely to be exploited, and below 1 means less likely. Each extra CVSS point multiplied the odds by `r round(p2_or_cvss, 2)`, and needing a user to click something lowered them (`r round(p2_or_ui, 2)`). Among vendors, Microsoft and Cisco CVEs had `r round(p2_or_ms, 1)` and `r round(p2_or_cisco, 1)` times the odds of Adobe's, the comparison vendor, which is itself often exploited (@fig-p2-odds-vendors).
+
+One result differs from the rate tables. Bugs that need no privileges were exploited more often than those needing high privileges (`r round(p2_pr_none$rate, 2)`% against `r round(p2_pr_high$rate, 2)`%), but in the model their odds ratio is `r round(p2_or_prnone, 2)`. The CVSS formula already gives these bugs higher scores (median `r format(p2_pr_none$median, nsmall = 1)` against `r format(p2_pr_high$median, nsmall = 1)`), so once the score is held fixed, needing no privileges adds no extra risk.
+
+```{r}
+#| label: fig-p2-odds-features
+#| fig-cap: "Odds ratios with 95% intervals for the technical features, from one logistic regression model. Compared with: adjacent network, high privileges, no user interaction."
+#| echo: false
+#| fig-width: 9
+#| fig-height: 5
+p2_odds_plot |>
+  filter(!is_vendor) |>
+  ggplot(aes(x = odds_ratio, y = fct_reorder(label, odds_ratio))) +
+  geom_pointrange(aes(xmin = low, xmax = high)) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  scale_x_log10() +
+  labs(title = "Authentication-bypass bugs have nearly 3 times the odds of exploitation",
+       subtitle = "Above 1 = more likely to be exploited, below 1 = less likely",
+       x = "Odds ratio (log scale)", y = "Feature") +
+  theme_dataforge()
+```
+
+```{r}
+#| label: fig-p2-odds-vendors
+#| fig-cap: "Odds ratios with 95% intervals for vendors, from the same model, compared with Adobe. Only vendors clearly different from Adobe are shown; vendors with no exploited CVEs are left out."
+#| echo: false
+#| fig-width: 9
+#| fig-height: 5
+p2_odds_plot |>
+  filter(is_vendor, low > 1 | high < 1) |>
+  mutate(label = str_to_title(label) |> str_replace("Ibm", "IBM")) |>
+  ggplot(aes(x = odds_ratio, y = fct_reorder(label, odds_ratio))) +
+  geom_pointrange(aes(xmin = low, xmax = high)) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  scale_x_log10(breaks = c(0.01, 0.03, 0.1, 0.3, 1, 3)) +
+  labs(title = "Microsoft and Cisco CVEs have over 3 times Adobe's odds of exploitation",
+       subtitle = "Above 1 = more likely to be exploited than Adobe, below 1 = less likely",
+       x = "Odds ratio (log scale)", y = "Vendor") +
+  theme_dataforge()
+```
+
